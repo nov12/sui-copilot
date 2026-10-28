@@ -1,0 +1,37 @@
+# Copy beside the sui-bridge binary as sui-bridge.toml.
+# Normally only the session credentials and model-service API key need to be
+# supplied manually. The web UI writes the selected book and LLM settings back
+# to this file.
+
+[server]
+listen_addr = "127.0.0.1:8080"
+data_dir = "./data"
+
+[logging]
+# debug / info / warn / error; defaults to info.
+level = "info"
+
+[sui]
+base_url = "https://www.sui.com"
+# session_file and session_key_file default below data_dir.
+# Created by `auth login`, then updated when cookies change or SSO restores the web session.
+# Long-lived login expiry still requires `auth login`; do not put a password here.
+# session_file = "./data/sui-session.bin"
+# session_key_file = "./data/sui-session.key"
+# book_name is written after selecting a book in the web UI.
+
+[llm]
+# provider = "openrouter" # openai / openrouter / custom
+# api_key = "Model service API key"
+# model is written after selecting or entering a model in the web UI.
+# OpenAI uses https://api.openai.com/v1 and OpenRouter uses
+# https://openrouter.ai/api/v1 automatically.
+# custom requires a Base URL whose OpenAI-compatible endpoint is
+# {base_url}/chat/completions.
+# base_url = "https://example.com/v1"
+# prompt is an optional user-editable supplement; the service-generated base
+# prompt contains the current-ledger categories and fixed JSON rules.
+# prompt = ""
+
+# Configurations using the old [openrouter] section remain readable and are
+# migrated to [llm] the next time the web UI saves the configuration.

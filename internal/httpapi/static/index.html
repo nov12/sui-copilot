@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>随手记桥接器</title>
+  <style>
+    :root{color:#e2e8f0;background:#0f172a;font:16px system-ui,sans-serif}body{margin:0}main{width:min(760px,calc(100% - 28px));margin:36px auto}textarea{width:100%;min-height:110px;box-sizing:border-box;padding:12px;color:inherit;background:#172033;border:1px solid #334155;border-radius:10px}button{margin-top:12px;padding:10px 15px;border:0;border-radius:9px;background:#7dd3fc;color:#082f49;font-weight:700;cursor:pointer}.card{margin-top:18px;padding:18px;background:#172033;border:1px solid #26354d;border-radius:14px}.row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #26354d}.muted{color:#94a3b8;font-size:.9rem}.error{color:#fda4af}
+  </style>
+</head>
+<body><main>
+  <p class="muted">SUI ACCOUNTING BRIDGE</p><h1>随手记桥接器</h1>
+  <section class="card"><h2>记一笔</h2><textarea id="input" placeholder="例如：今天中午在餐馆吃饭 35 元"></textarea><br><button id="submit">保存输入</button><p id="message" class="muted"></p></section>
+  <section class="card"><h2>记录</h2><div id="entries" class="muted">加载中…</div></section>
+</main>
+<script>
+  const input=document.querySelector('#input'), message=document.querySelector('#message'), entries=document.querySelector('#entries');
+  async function load(){const r=await fetch('/api/v1/entries');const b=await r.json();entries.innerHTML=b.entries.length?b.entries.map(e=>`<div class="row"><span>#${e.id} ${escapeHTML(e.inputText)}</span><span>${e.state}</span></div>`).join(''):'暂无记录'}
+  function escapeHTML(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+  document.querySelector('#submit').onclick=async()=>{if(!input.value.trim())return;message.textContent='保存中…';const r=await fetch('/api/v1/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:'web',inputType:'text',text:input.value})});const b=await r.json();message.textContent=r.ok?'已保存为待确认草稿':(b.message||'提交失败');if(r.ok){input.value='';load()}}
+  load();
+</script></body></html>

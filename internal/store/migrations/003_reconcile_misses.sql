@@ -1,0 +1,1 @@
+ALTER TABLE entries ADD COLUMN reconcile_misses INTEGER NOT NULL DEFAULT 0;

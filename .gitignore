@@ -1,0 +1,13 @@
+bin/
+web/dist/
+internal/httpapi/static/dist/*
+!internal/httpapi/static/dist/.gitkeep
+!internal/httpapi/static/dist/placeholder.txt
+data/
+.task/
+sui-bridge.toml
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+node_modules/
