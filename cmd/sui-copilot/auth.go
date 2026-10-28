@@ -13,18 +13,18 @@ import (
 
 	"golang.org/x/term"
 
-	"sui-bridge/internal/config"
-	"sui-bridge/internal/sui"
+	"sui-copilot/internal/config"
+	"sui-copilot/internal/sui"
 )
 
 func runAuth(args []string) error {
 	if len(args) == 0 || args[0] != "login" {
-		return errors.New("usage: sui-bridge auth login [--config path] [--data-dir path]")
+		return errors.New("usage: sui-copilot auth login [--config path] [--data-dir path]")
 	}
 
 	flags := flag.NewFlagSet("auth login", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	configPathFlag := flags.String("config", envOr("SUI_BRIDGE_CONFIG", defaultConfigPath()), "TOML configuration file")
+	configPathFlag := flags.String("config", envOr("SUI_COPILOT_CONFIG", defaultConfigPath()), "TOML configuration file")
 	dataDirFlag := flags.String("data-dir", "", "data directory override")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err

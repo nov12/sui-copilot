@@ -20,14 +20,14 @@
 
 ## 2. 配置建议
 
-正式工程必须先执行 `sui-bridge auth login`，让 Go 客户端完成随手记当前的保持登录状态流程并加密保存 CookieJar。服务端只从加密会话文件读取登录状态，不接受手工 Cookie 配置：
+正式工程必须先执行 `sui-copilot auth login`，让 Go 客户端完成随手记当前的保持登录状态流程并加密保存 CookieJar。服务端只从加密会话文件读取登录状态，不接受手工 Cookie 配置：
 
 ```text
 SUI_BASE_URL=https://www.sui.com
 SUI_SESSION_FILE=<encrypted session file, optional>
 SUI_SESSION_KEY_FILE=<owner-only session key, optional>
 SUI_BOOK_NAME=<允许写入的账本名称>
-SUI_BRIDGE_LOG_LEVEL=info
+SUI_COPILOT_LOG_LEVEL=info
 OPENROUTER_API_KEY=<OpenRouter API key>
 LLM_PROVIDER=openrouter # openai / openrouter / custom
 LLM_BASE_URL=<custom provider base URL, only for custom>
@@ -42,7 +42,7 @@ LLM_MODEL=<current model ID>
 level = "info" # debug / info / warn / error
 ```
 
-默认等级为 `info`。HTTP 接口访问日志使用 `debug`，服务状态日志使用 `info`，错误日志使用 `error`。`SUI_BRIDGE_LOG_LEVEL` 会覆盖 TOML 中的 `logging.level`。这里的日志 `debug` 与命令行 `--debug` 的提交预览开关相互独立。日志中不得写入 Cookie、密码或任何模型服务 API Key。
+默认等级为 `info`。HTTP 接口访问日志使用 `debug`，服务状态日志使用 `info`，错误日志使用 `error`。`SUI_COPILOT_LOG_LEVEL` 会覆盖 TOML 中的 `logging.level`。这里的日志 `debug` 与命令行 `--debug` 的提交预览开关相互独立。日志中不得写入 Cookie、密码或任何模型服务 API Key。
 
 本次勘察时当前账本显示为“自己账本”。工程中应配置名称而不是无条件写死 ID；服务端每次检查会话时从账簿列表解析名称，找不到或同名时明确报错，并重新确认当前账本。
 
@@ -80,7 +80,7 @@ Cookie: 由桥接器内部 CookieJar 自动附带当前会话
 1. 不要让浏览器和服务器同时高频使用同一个会话 cookie。
 2. 元数据刷新采用手动或低频策略，一次只执行必要的请求，不做并发抓取。
 3. 遇到登录重定向、`id == -1`、连续 401/403 或响应结构异常时，立即停止后续请求。
-4. 会话失效后不自动登录、不自动注销、不自动更换 cookie 重试；由用户重新执行 `sui-bridge auth login`，再恢复服务访问。
+4. 会话失效后不自动登录、不自动注销、不自动更换 cookie 重试；由用户重新执行 `sui-copilot auth login`，再恢复服务访问。
 5. 不把 User-Agent 当成安全措施，也不以伪装客户端特征为目标。优先使用官方导出/接口；若只能使用网页私有接口，应接受其不稳定性和账号风控风险。
 6. 服务器、浏览器和模型服务日志都必须隐藏 cookie、完整请求头和完整上游响应。
 
@@ -528,7 +528,7 @@ PATCH /api/v1/settings
 Content-Type: application/json
 ```
 
-可读写的普通配置为 `sui_book_name`、`llm_provider`、`llm_base_url`、`llm_model` 和 `llm_prompt`。`llm_provider` 可选 `openai`、`openrouter`、`custom`。第一版只支持 OpenAI-compatible Chat Completions，不支持 Responses API 或旧的 `/completions` 文本接口。OpenAI 和 OpenRouter 使用内置 Base URL；`custom` 必须填写 Base URL，服务端会请求 `{base_url}/chat/completions`，并尝试请求 `{base_url}/models`。自定义端点需要支持当前使用的 `response_format.type = "json_schema"`。其中 `llm_prompt` 是用户可编辑的解析补充提示，只作为偏好追加到固定系统规则之前；固定的 JSON Schema、当前账簿分类约束和“无法确定时要求确认”规则不会被覆盖。`llm_api_key` 只允许写入，GET 响应只返回已配置状态，不返回原文。随手记地址 `sui_base_url` 仍只在 TOML 中配置，不通过网页设置接口读写。随手记会话不通过内部设置接口提交，只能使用 `sui-bridge auth login` 建立或更新加密 CookieJar。网页保存后统一原子写入启动时使用的 TOML 文件，并以 owner-only 权限保存；配置项不会写入 SQLite。
+可读写的普通配置为 `sui_book_name`、`llm_provider`、`llm_base_url`、`llm_model` 和 `llm_prompt`。`llm_provider` 可选 `openai`、`openrouter`、`custom`。第一版只支持 OpenAI-compatible Chat Completions，不支持 Responses API 或旧的 `/completions` 文本接口。OpenAI 和 OpenRouter 使用内置 Base URL；`custom` 必须填写 Base URL，服务端会请求 `{base_url}/chat/completions`，并尝试请求 `{base_url}/models`。自定义端点需要支持当前使用的 `response_format.type = "json_schema"`。其中 `llm_prompt` 是用户可编辑的解析补充提示，只作为偏好追加到固定系统规则之前；固定的 JSON Schema、当前账簿分类约束和“无法确定时要求确认”规则不会被覆盖。`llm_api_key` 只允许写入，GET 响应只返回已配置状态，不返回原文。随手记地址 `sui_base_url` 仍只在 TOML 中配置，不通过网页设置接口读写。随手记会话不通过内部设置接口提交，只能使用 `sui-copilot auth login` 建立或更新加密 CookieJar。网页保存后统一原子写入启动时使用的 TOML 文件，并以 owner-only 权限保存；配置项不会写入 SQLite。
 
 旧字段 `openrouter_model`、`openrouter_prompt` 和 `openrouter_api_key` 仍可提交作为兼容别名。旧的 `[openrouter]` TOML 配置仍可读取，网页下次保存时转换为 `[llm]`。切换服务商时必须同时提交新服务商的 API Key；同一服务商下 API Key 为空表示保持原值。
 

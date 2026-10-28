@@ -14,7 +14,7 @@
 - `task test`：全量 Go 测试
 - `task web:build`：构建并校验 Vue 前端
 - `task web:embed`：把校验过的前端产物同步到 Go 的嵌入目录
-- `task build`：构建当前 `GOOS/GOARCH` 的 `bin/sui-bridge-<os>-<arch>`
+- `task build`：构建当前 `GOOS/GOARCH` 的 `bin/sui-copilot-<os>-<arch>`
 - `task build:linux`：构建 Linux amd64/arm64
 - `task build:release`：构建 Linux/macOS 的 amd64/arm64
 - `task clean`：清理构建产物
@@ -31,14 +31,14 @@
 task dev --watch
 ```
 
-默认读取 `bin/sui-bridge.toml`，相对 `data_dir` 按该配置文件目录解析。使用其他配置文件时设置 `SUI_BRIDGE_CONFIG`。
+默认读取 `bin/sui-copilot.toml`，相对 `data_dir` 按该配置文件目录解析。使用其他配置文件时设置 `SUI_COPILOT_CONFIG`。
 
 ## 版本与发布
 
 版本号来自 git tag，格式为 `vX.Y.Z`。构建时通过 `git describe --tags --always --dirty` 写入二进制：
 
 ```sh
-./bin/sui-bridge-linux-amd64 --version
+./bin/sui-copilot-linux-amd64 --version
 ```
 
 未打 tag 的本地构建会显示提交哈希或 `dev`；工作区有未提交改动时会带 `-dirty` 后缀。

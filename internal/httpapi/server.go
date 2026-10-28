@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"sui-bridge/internal/accounting"
-	"sui-bridge/internal/config"
-	"sui-bridge/internal/llm"
-	"sui-bridge/internal/store"
-	"sui-bridge/internal/sui"
+	"sui-copilot/internal/accounting"
+	"sui-copilot/internal/config"
+	"sui-copilot/internal/llm"
+	"sui-copilot/internal/store"
+	"sui-copilot/internal/sui"
 )
 
 //go:embed static/* static/dist

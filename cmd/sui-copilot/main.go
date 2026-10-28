@@ -12,19 +12,19 @@ import (
 	"strings"
 	"syscall"
 
-	"sui-bridge/internal/config"
-	"sui-bridge/internal/httpapi"
-	"sui-bridge/internal/store"
+	"sui-copilot/internal/config"
+	"sui-copilot/internal/httpapi"
+	"sui-copilot/internal/store"
 )
 
-const defaultConfigName = "sui-bridge.toml"
+const defaultConfigName = "sui-copilot.toml"
 
 // version is set at build time with -ldflags "-X main.version=vX.Y.Z".
 var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-version") {
-		fmt.Printf("sui-bridge %s\n", version)
+		fmt.Printf("sui-copilot %s\n", version)
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "auth" {
@@ -36,7 +36,7 @@ func main() {
 		return
 	}
 
-	configPath := configPathFromArgs(os.Args[1:], envOr("SUI_BRIDGE_CONFIG", defaultConfigPath()))
+	configPath := configPathFromArgs(os.Args[1:], envOr("SUI_COPILOT_CONFIG", defaultConfigPath()))
 	if absolutePath, err := filepath.Abs(configPath); err == nil {
 		configPath = absolutePath
 	}
@@ -71,7 +71,7 @@ func main() {
 		logger.Error("create data directory", "error", err)
 		os.Exit(1)
 	}
-	db, err := store.Open(*dataDir + "/sui-bridge.db")
+	db, err := store.Open(*dataDir + "/sui-copilot.db")
 	if err != nil {
 		logger.Error("open database", "error", err)
 		os.Exit(1)

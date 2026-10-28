@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"sui-bridge/internal/accounting"
-	"sui-bridge/internal/store"
-	"sui-bridge/internal/sui"
+	"sui-copilot/internal/accounting"
+	"sui-copilot/internal/store"
+	"sui-copilot/internal/sui"
 )
 
 var (

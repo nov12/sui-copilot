@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"sui-bridge/internal/accounting"
-	"sui-bridge/internal/config"
-	"sui-bridge/internal/store"
-	"sui-bridge/internal/sui"
+	"sui-copilot/internal/accounting"
+	"sui-copilot/internal/config"
+	"sui-copilot/internal/store"
+	"sui-copilot/internal/sui"
 )
 
 func TestSubmitResolvedEntryPersistsResultAfterCancellation(t *testing.T) {

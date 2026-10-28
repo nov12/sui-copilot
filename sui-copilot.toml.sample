@@ -1,4 +1,4 @@
-# Copy beside the sui-bridge binary as sui-bridge.toml.
+# Copy beside the sui-copilot binary as sui-copilot.toml.
 # Normally only the session credentials and model-service API key need to be
 # supplied manually. The web UI writes the selected book and LLM settings back
 # to this file.

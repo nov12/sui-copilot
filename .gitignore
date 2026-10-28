@@ -5,7 +5,7 @@ internal/httpapi/static/dist/*
 !internal/httpapi/static/dist/placeholder.txt
 data/
 .task/
-sui-bridge.toml
+sui-copilot.toml
 *.db
 *.db-shm
 *.db-wal

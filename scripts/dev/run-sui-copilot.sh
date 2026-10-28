@@ -10,17 +10,17 @@ fi
 binary="$1"
 shift
 
-pid_file="${SUI_BRIDGE_DEV_PID_FILE:-.task/sui-bridge.pid}"
+pid_file="${SUI_COPILOT_DEV_PID_FILE:-.task/sui-copilot.pid}"
 pid_dir="$(dirname "$pid_file")"
 lock_dir="${pid_file}.lock"
-restart_delay="${SUI_BRIDGE_DEV_RESTART_DELAY:-0.2}"
+restart_delay="${SUI_COPILOT_DEV_RESTART_DELAY:-0.2}"
 binary_name="$(basename "$binary")"
 lock_held=0
 server_pid=""
 
 mkdir -p "$pid_dir"
 
-is_sui_bridge_pid() {
+is_sui_copilot_pid() {
   local pid="$1"
   local command_line
 
@@ -44,7 +44,7 @@ stop_pid() {
     sleep 0.1
   done
   if kill -0 "$pid" 2>/dev/null; then
-    echo "[dev] sui-bridge did not exit in time; sending SIGKILL (pid=$pid)" >&2
+    echo "[dev] sui-copilot did not exit in time; sending SIGKILL (pid=$pid)" >&2
     kill -KILL "$pid" 2>/dev/null || true
   fi
   wait "$pid" 2>/dev/null || true
@@ -58,8 +58,8 @@ stop_previous() {
   fi
 
   previous_pid="$(sed -n '1p' "$pid_file" 2>/dev/null || true)"
-  if [[ "$previous_pid" =~ ^[0-9]+$ ]] && kill -0 "$previous_pid" 2>/dev/null && is_sui_bridge_pid "$previous_pid"; then
-    echo "[dev] stopping previous sui-bridge (pid=$previous_pid)"
+  if [[ "$previous_pid" =~ ^[0-9]+$ ]] && kill -0 "$previous_pid" 2>/dev/null && is_sui_copilot_pid "$previous_pid"; then
+    echo "[dev] stopping previous sui-copilot (pid=$previous_pid)"
     stop_pid "$previous_pid"
     sleep "$restart_delay"
   fi

@@ -13,11 +13,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"sui-bridge/internal/accounting"
-	"sui-bridge/internal/config"
-	"sui-bridge/internal/llm"
-	"sui-bridge/internal/store"
-	"sui-bridge/internal/sui"
+	"sui-copilot/internal/accounting"
+	"sui-copilot/internal/config"
+	"sui-copilot/internal/llm"
+	"sui-copilot/internal/store"
+	"sui-copilot/internal/sui"
 )
 
 var publicSettingKeys = map[string]bool{
@@ -183,7 +183,7 @@ func (s *Server) persistConfig(cfg config.Config) error {
 	if s.configPath == "" {
 		return nil
 	}
-	file, err := os.CreateTemp(filepath.Dir(s.configPath), ".sui-bridge-config-*")
+	file, err := os.CreateTemp(filepath.Dir(s.configPath), ".sui-copilot-config-*")
 	if err != nil {
 		return err
 	}
@@ -572,11 +572,11 @@ func publicBooks(books []sui.Book) []map[string]any {
 func suiError(err error) (int, string, string) {
 	switch {
 	case errors.Is(err, sui.ErrSessionExpired):
-		return http.StatusUnauthorized, "sui_session_expired", "随手记会话已失效，请重新执行 sui-bridge auth login"
+		return http.StatusUnauthorized, "sui_session_expired", "随手记会话已失效，请重新执行 sui-copilot auth login"
 	case errors.Is(err, sui.ErrSessionNotConfigured):
-		return http.StatusBadRequest, "sui_session_not_configured", "请先执行 sui-bridge auth login"
+		return http.StatusBadRequest, "sui_session_not_configured", "请先执行 sui-copilot auth login"
 	case errors.Is(err, sui.ErrSessionStoreCorrupted):
-		return http.StatusBadRequest, "sui_session_corrupted", "随手记登录会话不可用，请重新执行 sui-bridge auth login"
+		return http.StatusBadRequest, "sui_session_corrupted", "随手记登录会话不可用，请重新执行 sui-copilot auth login"
 	case errors.Is(err, sui.ErrBookNameNotConfigured):
 		return http.StatusBadRequest, "book_name_not_configured", "请先设置目标账簿名称"
 	case errors.Is(err, sui.ErrBookNotFound):

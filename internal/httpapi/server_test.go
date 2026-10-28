@@ -16,11 +16,11 @@ import (
 	"testing/fstest"
 	"time"
 
-	"sui-bridge/internal/accounting"
-	"sui-bridge/internal/config"
-	"sui-bridge/internal/llm"
-	"sui-bridge/internal/store"
-	"sui-bridge/internal/sui"
+	"sui-copilot/internal/accounting"
+	"sui-copilot/internal/config"
+	"sui-copilot/internal/llm"
+	"sui-copilot/internal/store"
+	"sui-copilot/internal/sui"
 )
 
 func TestIngestIdempotencyAPI(t *testing.T) {
@@ -1064,7 +1064,7 @@ func TestCleanupRetentionSettingsAndManualCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	configPath := t.TempDir() + "/sui-bridge.toml"
+	configPath := t.TempDir() + "/sui-copilot.toml"
 	server := NewServerWithConfigPath(db, slog.Default(), config.Default(), configPath)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
@@ -1130,7 +1130,7 @@ func TestSettingsPersistPublicValuesToConfigFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	configPath := t.TempDir() + "/sui-bridge.toml"
+	configPath := t.TempDir() + "/sui-copilot.toml"
 	server := NewServerWithConfigPath(db, slog.Default(), config.Default(), configPath)
 	request := httptest.NewRequest(http.MethodPatch, "/api/v1/settings", strings.NewReader(`{"sui_book_name":"家庭账本","openrouter_model":"anthropic/claude-sonnet","openrouter_prompt":"午餐优先归入食品","openrouter_api_key":"new-api-key"}`))
 	response := httptest.NewRecorder()

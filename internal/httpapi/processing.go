@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"sui-bridge/internal/accounting"
-	"sui-bridge/internal/store"
+	"sui-copilot/internal/accounting"
+	"sui-copilot/internal/store"
 )
 
 const backgroundProcessingTimeout = 10 * time.Minute

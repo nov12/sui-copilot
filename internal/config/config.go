@@ -217,9 +217,9 @@ func ApplyEnv(cfg *Config) {
 		return
 	}
 	Normalize(cfg)
-	setenv("SUI_BRIDGE_LISTEN_ADDR", &cfg.Server.ListenAddr)
-	setenv("SUI_BRIDGE_DATA_DIR", &cfg.Server.DataDir)
-	setenv("SUI_BRIDGE_LOG_LEVEL", &cfg.Logging.Level)
+	setenv("SUI_COPILOT_LISTEN_ADDR", &cfg.Server.ListenAddr)
+	setenv("SUI_COPILOT_DATA_DIR", &cfg.Server.DataDir)
+	setenv("SUI_COPILOT_LOG_LEVEL", &cfg.Logging.Level)
 	setenv("SUI_BASE_URL", &cfg.Sui.BaseURL)
 	setenv("SUI_BOOK_NAME", &cfg.Sui.BookName)
 	setenv("SUI_SESSION_FILE", &cfg.Sui.SessionFile)

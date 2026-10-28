@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"sui-bridge/internal/security"
+	"sui-copilot/internal/security"
 )
 
 const loginBaseURL = "https://login.sui.com"

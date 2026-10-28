@@ -1,4 +1,4 @@
-# sui-bridge
+# sui-copilot
 
 用一句话记账：在网页或手机快捷指令里输入「今天午饭 35 元」，AI 自动解析成收入/支出并写入随手记。账目数据只存在自己电脑上，随手记仍是唯一的账本。
 
@@ -41,8 +41,8 @@ task build
 
 ```sh
 mkdir -p bin
-cp sui-bridge.toml.sample bin/sui-bridge.toml
-./bin/sui-bridge-<os>-<arch> auth login --config ./bin/sui-bridge.toml
+cp sui-copilot.toml.sample bin/sui-copilot.toml
+./bin/sui-copilot-<os>-<arch> auth login --config ./bin/sui-copilot.toml
 ```
 
 命令会提示输入随手记账号和密码；密码不会保存，登录状态加密存放在数据目录。
@@ -50,7 +50,7 @@ cp sui-bridge.toml.sample bin/sui-bridge.toml
 启动服务：
 
 ```sh
-./bin/sui-bridge-<os>-<arch> --config ./bin/sui-bridge.toml
+./bin/sui-copilot-<os>-<arch> --config ./bin/sui-copilot.toml
 ```
 
 然后浏览器打开 `http://127.0.0.1:8080`，就是上面截图里的界面。第一次使用建议先在「配置」里点一次「同步随手记账本列表」和「同步当前账簿分类」，后台解析要用账本的分类资料。
@@ -62,7 +62,7 @@ cp sui-bridge.toml.sample bin/sui-bridge.toml
 版本号来自 git tag，格式为 `vX.Y.Z`，构建时写入程序：
 
 ```sh
-./bin/sui-bridge-<os>-<arch> --version
+./bin/sui-copilot-<os>-<arch> --version
 ```
 
 推送 `v*` tag 会触发 GitHub Release，自动构建 Linux/macOS 的 amd64/arm64 二进制并生成发布说明。详见[开发与发布](docs/development.md)。
@@ -80,7 +80,7 @@ cp sui-bridge.toml.sample bin/sui-bridge.toml
 ## 目录
 
 ```text
-cmd/sui-bridge/             sui-bridge 启动入口
+cmd/sui-copilot/            sui-copilot 启动入口
 internal/accounting/        草稿、解析和校验
 internal/httpapi/           API 和静态资源入口
 internal/llm/               OpenAI-compatible Chat Completions 客户端

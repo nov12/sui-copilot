@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode"
 
-	"sui-bridge/internal/accounting"
+	"sui-copilot/internal/accounting"
 )
 
 // Client is a small OpenAI-compatible Chat Completions client. It only asks

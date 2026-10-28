@@ -52,7 +52,7 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: sui-bridge-linux
-          path: bin/sui-bridge-linux-*
+          name: sui-copilot-linux
+          path: bin/sui-copilot-linux-*
           if-no-files-found: error
           retention-days: 14

@@ -1,4 +1,4 @@
-module sui-bridge
+module sui-copilot
 
 go 1.27
 

@@ -107,8 +107,8 @@ tasks:
         set -eu
         GOOS="$(go env GOOS)"
         GOARCH="$(go env GOARCH)"
-        OUTPUT="bin/sui-bridge-${GOOS}-${GOARCH}"
-        go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o "$OUTPUT" ./cmd/sui-bridge
+        OUTPUT="bin/sui-copilot-${GOOS}-${GOARCH}"
+        go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o "$OUTPUT" ./cmd/sui-copilot
         echo "built $OUTPUT ({{.VERSION}})"
 
   build:linux:
@@ -118,10 +118,10 @@ tasks:
       - mkdir -p bin
       - |
         set -eu
-        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-bridge-linux-amd64 ./cmd/sui-bridge
-        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-bridge-linux-arm64 ./cmd/sui-bridge
-        echo "built bin/sui-bridge-linux-amd64 ({{.VERSION}})"
-        echo "built bin/sui-bridge-linux-arm64 ({{.VERSION}})"
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-copilot-linux-amd64 ./cmd/sui-copilot
+        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-copilot-linux-arm64 ./cmd/sui-copilot
+        echo "built bin/sui-copilot-linux-amd64 ({{.VERSION}})"
+        echo "built bin/sui-copilot-linux-arm64 ({{.VERSION}})"
 
   build:release:
     desc: Build release binaries for Linux and macOS
@@ -133,8 +133,8 @@ tasks:
         for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
           GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 \
             go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" \
-            -o "bin/sui-bridge-${target%/*}-${target#*/}" ./cmd/sui-bridge
-          echo "built bin/sui-bridge-${target%/*}-${target#*/} ({{.VERSION}})"
+            -o "bin/sui-copilot-${target%/*}-${target#*/}" ./cmd/sui-copilot
+          echo "built bin/sui-copilot-${target%/*}-${target#*/} ({{.VERSION}})"
         done
 
   dev:
@@ -157,8 +157,8 @@ tasks:
       - task: web:embed
       - task: dev:build
       - cmd: |
-          echo "[dev] starting sui-bridge from bin"
-          exec bash ./scripts/dev/run-sui-bridge.sh ./bin/sui-bridge-$(go env GOOS)-$(go env GOARCH)
+          echo "[dev] starting sui-copilot from bin"
+          exec bash ./scripts/dev/run-sui-copilot.sh ./bin/sui-copilot-$(go env GOOS)-$(go env GOARCH)
         silent: true
 
   dev:build:
@@ -177,10 +177,10 @@ tasks:
       - web/tsconfig.json
       - web/src/**/*
     generates:
-      - bin/sui-bridge-{{OS}}-{{ARCH}}
+      - bin/sui-copilot-{{OS}}-{{ARCH}}
     cmds:
       - mkdir -p bin
-      - go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-bridge-{{OS}}-{{ARCH}} ./cmd/sui-bridge
+      - go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-copilot-{{OS}}-{{ARCH}} ./cmd/sui-copilot
 
   clean:
     desc: Remove build artifacts

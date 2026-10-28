@@ -8,7 +8,7 @@ import (
 )
 
 func TestLoadTOML(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sui-bridge.toml")
+	path := filepath.Join(t.TempDir(), "sui-copilot.toml")
 	content := "[server]\nlisten_addr = '127.0.0.1:9090'\ndata_dir = './runtime'\n[logging]\nlevel = 'debug'\n[sui]\nbase_url = 'https://example.test'\nbook_name = '工作账本'\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestLoadLegacyOpenRouterConfigMigratesToLLM(t *testing.T) {
 	for _, name := range []string{"LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_PROMPT", "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "OPENAI_API_KEY", "OPENAI_MODEL"} {
 		t.Setenv(name, "")
 	}
-	path := filepath.Join(t.TempDir(), "sui-bridge.toml")
+	path := filepath.Join(t.TempDir(), "sui-copilot.toml")
 	content := "[openrouter]\napi_key = 'legacy-key'\nmodel = 'legacy/model'\nprompt = 'legacy prompt'\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestLoadCanonicalLLMConfigAndValidateCustomEndpoint(t *testing.T) {
 	for _, name := range []string{"LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_PROMPT", "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "OPENAI_API_KEY", "OPENAI_MODEL"} {
 		t.Setenv(name, "")
 	}
-	path := filepath.Join(t.TempDir(), "sui-bridge.toml")
+	path := filepath.Join(t.TempDir(), "sui-copilot.toml")
 	content := "[llm]\nprovider = 'custom'\nbase_url = 'http://127.0.0.1:9000/v1/'\nmodel = 'local/model'\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)

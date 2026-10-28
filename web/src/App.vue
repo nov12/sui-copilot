@@ -771,7 +771,7 @@ onUnmounted(() => {
 
 <template>
   <div class="shell">
-    <header><div><p class="eyebrow">SUI ACCOUNTING BRIDGE</p><h1>随手记桥接器</h1></div><div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="settingsOpen = true">配置</button></div></header>
+    <header><div><p class="eyebrow">SUI COPILOT</p><h1>随手记记账助手</h1></div><div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="settingsOpen = true">配置</button></div></header>
     <Teleport to="body">
       <div v-if="settingsOpen" class="config-overlay">
         <section class="card config-dialog" role="dialog" aria-modal="true" aria-labelledby="config-title">

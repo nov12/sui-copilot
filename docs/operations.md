@@ -20,9 +20,9 @@
 
 ## 配置
 
-默认读取可执行文件同目录下的 `sui-bridge.toml`；相对 `data_dir` 按配置文件目录解析。也可以用 `--config`、`--addr` 和 `--data-dir` 覆盖。示例配置见 [sui-bridge.toml.sample](../sui-bridge.toml.sample)。
+默认读取可执行文件同目录下的 `sui-copilot.toml`；相对 `data_dir` 按配置文件目录解析。也可以用 `--config`、`--addr` 和 `--data-dir` 覆盖。示例配置见 [sui-copilot.toml.sample](../sui-copilot.toml.sample)。
 
-通过 `task dev` 使用其他配置文件时设置 `SUI_BRIDGE_CONFIG`；`task dev` 默认使用 `bin/sui-bridge.toml`。
+通过 `task dev` 使用其他配置文件时设置 `SUI_COPILOT_CONFIG`；`task dev` 默认使用 `bin/sui-copilot.toml`。
 
 日志等级在配置文件中设置：
 
@@ -31,7 +31,7 @@
 level = "info" # debug / info / warn / error
 ```
 
-默认使用 `info`。每次 HTTP 接口访问只在 `debug` 等级下记录；服务启动、后台维护完成等运行状态使用 `info`，错误使用 `error`。也可以用 `SUI_BRIDGE_LOG_LEVEL` 环境变量覆盖配置文件中的等级。这里的 `logging.level = "debug"` 只控制日志详细程度，与命令行 `--debug` 开启提交预览是两项独立设置。
+默认使用 `info`。每次 HTTP 接口访问只在 `debug` 等级下记录；服务启动、后台维护完成等运行状态使用 `info`，错误使用 `error`。也可以用 `SUI_COPILOT_LOG_LEVEL` 环境变量覆盖配置文件中的等级。这里的 `logging.level = "debug"` 只控制日志详细程度，与命令行 `--debug` 开启提交预览是两项独立设置。
 
 ## 登录与会话
 
@@ -44,7 +44,7 @@ level = "info" # debug / info / warn / error
 需要查看或执行 debug 提交预览时，直接运行带 `--debug` 的服务：
 
 ```sh
-./bin/sui-bridge-<os>-<arch> --config ./bin/sui-bridge.toml --debug
+./bin/sui-copilot-<os>-<arch> --config ./bin/sui-copilot.toml --debug
 ```
 
 `--debug` 才会开放提交预览和手动提交接口；普通启动不会显示或接受这些接口。
