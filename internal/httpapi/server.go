@@ -24,7 +24,7 @@ import (
 	"sui-copilot/internal/sui"
 )
 
-//go:embed static/* static/dist
+//go:embed static
 var staticFS embed.FS
 
 type Server struct {

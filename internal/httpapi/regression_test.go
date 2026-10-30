@@ -67,10 +67,12 @@ func TestPauseBlocksQueueUntilResumed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	server := NewServer(db, slog.Default(), config.Config{
+	// Keep the parsed draft pending so this queue test does not race with
+	// automatic submission or need to simulate the upstream write flow.
+	server := NewServerWithConfigPathAndDebug(db, slog.Default(), config.Config{
 		Sui:        withTestSession(t, config.SuiConfig{BaseURL: "https://sui.example", BookName: "自己账本"}),
 		OpenRouter: config.OpenRouterConfig{APIKey: "test-api-key", Model: "test-model"},
-	})
+	}, "", true)
 	if err := db.SetSetting(context.Background(), "processing_paused", "true"); err != nil {
 		t.Fatal(err)
 	}
@@ -119,11 +121,10 @@ func TestPauseBlocksQueueUntilResumed(t *testing.T) {
 	if err := db.SetSetting(context.Background(), "processing_paused", "false"); err != nil {
 		t.Fatal(err)
 	}
-	processed := waitForEntryState(t, db, entry.ID, accounting.StatePendingSubmission)
+	waitForEntryState(t, db, entry.ID, accounting.StatePendingSubmission)
 	if parses.Load() != 1 {
 		t.Fatalf("resumed queue parsed %d times, want 1", parses.Load())
 	}
-	_ = processed
 }
 
 // Non-amount quantities and fragmented colloquial amounts must not override
