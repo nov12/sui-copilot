@@ -8,17 +8,35 @@
 
 ## 界面预览
 
-电脑端——左边记一笔、看记录，右边核对或修改解析结果：
+电脑端与手机端并排预览，点击图片可查看原图。
 
-![电脑端主界面](docs/screenshots/ui-desktop.png)
+<table>
+  <tr>
+    <td width="73%" valign="top">
+      <strong>电脑端</strong>
+      <p>录入账目、浏览记录，核对或修改解析结果。</p>
+      <a href="docs/screenshots/ui-desktop.png">
+        <img src="docs/screenshots/ui-desktop.png" alt="电脑端记账与记录详情" width="100%">
+      </a>
+    </td>
+    <td width="27%" valign="top">
+      <strong>手机端</strong>
+      <p>手机浏览器也能直接记账。</p>
+      <a href="docs/screenshots/ui-mobile.png">
+        <img src="docs/screenshots/ui-mobile.png" alt="手机端记账与记录列表" width="100%">
+      </a>
+    </td>
+  </tr>
+</table>
 
-配置界面——账本、AI 服务商、模型都在这里设置：
-
-![配置界面](docs/screenshots/ui-settings.png)
-
-手机浏览器打开也是完整的（响应式布局）：
-
-![手机端](docs/screenshots/ui-mobile.png)
+<details>
+  <summary>查看配置界面：账本、AI 服务商与模型设置</summary>
+  <p>
+    <a href="docs/screenshots/ui-settings.png">
+      <img src="docs/screenshots/ui-settings.png" alt="账本、AI 服务商与模型配置" width="100%">
+    </a>
+  </p>
+</details>
 
 ## 它能做什么
 
