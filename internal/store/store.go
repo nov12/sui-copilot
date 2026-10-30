@@ -59,76 +59,51 @@ func Open(path string) (*DB, error) {
 
 func (db *DB) Close() error { return db.sql.Close() }
 
+// migrationFiles keeps each applied version paired with its SQL file.
+var migrationFiles = map[int]string{
+	1: "migrations/001_init.sql",
+	2: "migrations/002_remove_configuration_settings.sql",
+	3: "migrations/003_reconcile_misses.sql",
+	4: "migrations/004_clear_success_errors.sql",
+	5: "migrations/005_llm_model_catalog.sql",
+}
+
 func (db *DB) migrate(ctx context.Context) error {
-	content, err := migrationFS.ReadFile("migrations/001_init.sql")
-	if err != nil {
-		return err
-	}
-	if _, err := db.sql.ExecContext(ctx, string(content)); err != nil {
-		return fmt.Errorf("apply migration: %w", err)
-	}
-	_, err = db.sql.ExecContext(ctx, `INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(1, ?)`, time.Now().UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return err
-	}
-	var applied int
-	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version=2`).Scan(&applied); err != nil {
-		return err
-	}
-	if applied == 0 {
-		content, err := migrationFS.ReadFile("migrations/002_remove_configuration_settings.sql")
+	// Each migration runs in one transaction with its version record so a
+	// crash between the schema change and the bookkeeping cannot leave a
+	// half-applied migration that fails to replay on the next start. The
+	// version table is created by the first transaction, so fresh databases
+	// cannot query it beforehand.
+	for _, version := range []int{1, 2, 3, 4, 5} {
+		tx, err := db.sql.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if _, err := db.sql.ExecContext(ctx, string(content)); err != nil {
-			return fmt.Errorf("apply migration 2: %w", err)
-		}
-		if _, err := db.sql.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES(2, ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+			tx.Rollback()
 			return err
 		}
-	}
-	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version=3`).Scan(&applied); err != nil {
-		return err
-	}
-	if applied == 0 {
-		content, err := migrationFS.ReadFile("migrations/003_reconcile_misses.sql")
-		if err != nil {
+		var applied int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version=?`, version).Scan(&applied); err != nil {
+			tx.Rollback()
 			return err
 		}
-		if _, err := db.sql.ExecContext(ctx, string(content)); err != nil {
-			return fmt.Errorf("apply migration 3: %w", err)
+		if applied == 0 {
+			content, err := migrationFS.ReadFile(migrationFiles[version])
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, string(content)); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("apply migration %d: %w", version, err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)`, version, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+				tx.Rollback()
+				return err
+			}
 		}
-		if _, err := db.sql.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES(3, ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-			return err
-		}
-	}
-	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version=4`).Scan(&applied); err != nil {
-		return err
-	}
-	if applied == 0 {
-		content, err := migrationFS.ReadFile("migrations/004_clear_success_errors.sql")
-		if err != nil {
-			return err
-		}
-		if _, err := db.sql.ExecContext(ctx, string(content)); err != nil {
-			return fmt.Errorf("apply migration 4: %w", err)
-		}
-		if _, err := db.sql.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES(4, ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-			return err
-		}
-	}
-	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version=5`).Scan(&applied); err != nil {
-		return err
-	}
-	if applied == 0 {
-		content, err := migrationFS.ReadFile("migrations/005_llm_model_catalog.sql")
-		if err != nil {
-			return err
-		}
-		if _, err := db.sql.ExecContext(ctx, string(content)); err != nil {
-			return fmt.Errorf("apply migration 5: %w", err)
-		}
-		if _, err := db.sql.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES(5, ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}

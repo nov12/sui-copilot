@@ -34,6 +34,10 @@ const detailElement = ref<HTMLElement | null>(null)
 const detailClosing = ref(false)
 const secretStatus = ref<SecretStatus>({ llm_api_key: false })
 const interruptConfirmOpen = ref(false)
+const resolveOpen = ref(false)
+const resolveBusy = ref(false)
+const resolveResult = ref<'committed' | 'rejected'>('committed')
+const resolveNote = ref('')
 const models = ref<ModelOption[]>([])
 const modelCatalogUpdatedAt = ref('')
 const modelQuery = ref('')
@@ -87,7 +91,7 @@ function isBackgroundState(state: string): boolean {
 }
 
 function canEditEntryState(state: string): boolean {
-  return !['queued', 'processing', 'committing', 'committed'].includes(state)
+  return !['queued', 'processing', 'committing', 'committed', 'uncertain'].includes(state)
 }
 
 type CategoryGroup = { parent: CategoryOption; children: CategoryOption[] }
@@ -678,6 +682,34 @@ function closeInterruptConfirm() {
   if (!busy.value) interruptConfirmOpen.value = false
 }
 
+function openResolve(result: 'committed' | 'rejected') {
+  if (!selected.value || selectedState.value !== 'uncertain' || busy.value) return
+  resolveResult.value = result
+  resolveNote.value = ''
+  resolveOpen.value = true
+}
+
+function closeResolve() {
+  if (!resolveBusy.value) resolveOpen.value = false
+}
+
+async function confirmResolve() {
+  if (!selected.value || selectedState.value !== 'uncertain' || resolveBusy.value) return
+  resolveBusy.value = true
+  message.value = ''
+  try {
+    const result = await api.resolve(selected.value, resolveResult.value, resolveNote.value.trim())
+    resolveOpen.value = false
+    openEntry(result.entry)
+    await refresh()
+    message.value = result.entry.state === 'committed'
+      ? `记录 #${result.entry.id} 已人工确认入账`
+      : `记录 #${result.entry.id} 已人工确认未入账（请勿在随手记中重记）`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '人工处理失败'
+  } finally { resolveBusy.value = false }
+}
+
 async function confirmInterruptProcessing() {
   if (!selected.value || selectedState.value !== 'processing' || busy.value) return
   interruptConfirmOpen.value = false
@@ -857,6 +889,16 @@ onUnmounted(() => {
       </div>
     </Teleport>
     <Teleport to="body">
+      <div v-if="resolveOpen" class="confirm-overlay" @click.self="closeResolve">
+        <section class="card confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="resolve-title">
+          <div class="section-title"><div><h2 id="resolve-title">人工处理待核对记录</h2><p class="hint">先在随手记流水里核对这一笔是否已入账。</p></div><button class="link" :disabled="resolveBusy" @click="closeResolve">关闭</button></div>
+          <p class="confirm-message">确定记录 #{{ selected?.id }} 的实际结果是「{{ resolveResult === 'committed' ? '已入账' : '未入账' }}」吗？</p>
+          <label class="form-field">备注<input v-model="resolveNote" type="text" placeholder="可选；记录核对依据，例如“随手记流水已确认存在”" :disabled="resolveBusy"></label>
+          <div class="actions confirm-actions"><button class="secondary" :disabled="resolveBusy" @click="closeResolve">取消</button><button :disabled="resolveBusy" @click="confirmResolve">{{ resolveBusy ? '处理中…' : '确认结果' }}</button></div>
+        </section>
+      </div>
+    </Teleport>
+    <Teleport to="body">
       <div v-if="deleteConfirmOpen" class="confirm-overlay" @click.self="closeDeleteConfirm">
         <section class="card confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title">
           <div class="section-title"><div><h2 id="delete-confirm-title">删除记录</h2><p class="hint">删除后不可恢复。</p></div><button class="link" :disabled="busy" @click="closeDeleteConfirm">关闭</button></div>
@@ -868,7 +910,7 @@ onUnmounted(() => {
     <section class="card composer"><label for="input">{{ editing ? '修改一笔' : '记一笔' }}</label><textarea id="input" v-model="text" placeholder="例如：今天中午在餐馆吃饭 35 元"></textarea><div class="actions"><span class="hint">{{ editing ? `正在修改记录 #${editingEntry?.id}；提交后会重新进入后台解析` : ledgerReady ? `点击提交后先保存为待解析，后台按“${syncedMetadata?.currentBook.name}”的账本资料处理` : '点击提交后会先保存为待解析；后台解析需要当前账簿分类资料' }}</span><button v-if="editing" class="secondary" :disabled="busy" @click="exitEdit">退出修改</button><button :disabled="busy || !text.trim()" @click="submit">{{ busy ? '提交中…' : '提交' }}</button></div></section>
     <p v-if="message" class="notice" role="status" aria-live="polite">{{ message }}</p>
     <div class="layout"><section class="card"><div class="section-title record-section-title"><div class="record-heading"><h2>记录</h2><button type="button" class="icon-action reconcile-button" :disabled="refreshBusy" aria-label="刷新并核对" title="刷新并核对" @click="refreshAndReconcile"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg></button><p class="field-hint">右键记录可修改原草稿</p></div><div class="entry-list-actions"><div class="record-filter" role="group" aria-label="记录筛选"><button type="button" :class="{ active: !manualOnly }" :aria-pressed="!manualOnly" @click="manualOnly = false">全部</button><button type="button" :class="{ active: manualOnly }" :aria-pressed="manualOnly" @click="manualOnly = true">待处理</button></div></div></div><p v-if="!visibleEntries.length" class="empty">{{ manualOnly ? '没有需要手动确认的记录。' : '还没有记录。' }}</p><button v-for="entry in visibleEntries" :key="entry.id" class="entry-row" :class="{ active: selected?.id === entry.id }" :disabled="busy" @click="submitFeedbackState = 'idle'; openEntry(entry)" @contextmenu.prevent="!busy && editEntry(entry)"><span><strong>#{{ entry.id }}</strong> {{ entry.inputText }}</span><span class="state" :class="stateClass(entry.state)">{{ entryStateLabel(entry) }}</span></button></section>
-      <section ref="detailElement" class="card detail" :class="{ 'detail-closing': detailClosing, 'detail-feedback-active': submitFeedbackState !== 'idle' }"><template v-if="selected && (selectedState === 'queued' || selectedState === 'processing')"><div class="section-title"><h2>记录 #{{ selected.id }}</h2><span class="state" :class="stateClass(selectedState)">{{ selectedStateLabel }}</span></div><div class="processing-panel"><p>{{ selectedState === 'queued' ? '记录已保存，等待后台解析。' : '后台正在解析这条记录，请稍候。' }}</p><p class="field-hint">解析完成后，字段明确的记录会自动提交；只有需要人工判断的记录才会停留在待人工确认。</p></div><div v-if="selectedState === 'processing'" class="actions"><button class="danger-action" :disabled="busy" @click="interruptProcessing">{{ busy ? '中断中…' : '中断解析' }}</button></div></template><template v-else-if="selected && draft"><div class="section-title"><h2>记录 #{{ selected.id }}</h2><span class="state" :class="stateClass(selectedState)">{{ selectedStateLabel }}</span></div><label :inert="submitFeedbackState !== 'idle'">类型<select v-model="draft.type" @change="resetCategoryForType"><option value="expense">支出</option><option value="income">收入</option></select></label><label :inert="submitFeedbackState !== 'idle'">日期<input v-model="draft.date"></label><label :inert="submitFeedbackState !== 'idle'">账户<select v-model="draft.accountName" :disabled="!syncedMetadata?.accounts.length"><option value="" disabled>{{ syncedMetadata?.accounts.length ? '请选择账户' : '请先同步当前账簿资料' }}</option><option v-for="item in syncedMetadata?.accounts ?? []" :key="`draft-account-${item.id}`" :value="item.name">{{ item.name }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">金额<input v-model="draft.amount" type="text" inputmode="decimal" autocomplete="off"></label><label :inert="submitFeedbackState !== 'idle'">分类<select v-model="draft.categoryName" :disabled="!categoryOptions.length"><option value="" disabled>{{ categoryOptions.length ? '请选择二级分类' : '请先同步当前账簿分类' }}</option><option v-for="item in categoryOptions" :key="`draft-category-${item.id}`" :value="categoryLabel(item)">{{ categoryLabel(item) }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">商家<select v-model="draft.storeName" :disabled="!syncedMetadata?.stores.length"><option value="">无</option><option v-for="item in syncedMetadata?.stores ?? []" :key="`draft-store-${item.id}`" :value="item.name">{{ item.name }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">项目<select v-model="draft.projectName" :disabled="!syncedMetadata?.projects.length"><option value="">无</option><option v-for="item in syncedMetadata?.projects ?? []" :key="`draft-project-${item.id}`" :value="item.name">{{ item.name }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">成员<select v-model="draft.memberName" :disabled="!syncedMetadata?.members.length"><option value="">无</option><option v-for="item in syncedMetadata?.members ?? []" :key="`draft-member-${item.id}`" :value="item.name">{{ item.name }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">备注<textarea v-model="draft.memo"></textarea></label><div class="actions" :inert="submitFeedbackState !== 'idle'"><button v-if="debugEnabled" class="secondary" :disabled="busy || submitPreviewBusy || !requiredFieldsReady" @click="previewSubmit">{{ submitPreviewBusy ? '生成预览…' : '提交预览' }}</button><button class="secondary" :disabled="busy || !canEditEntryState(selectedState)" @click="reparse">重新解析</button><button :disabled="busy" @click="saveDraft">保存草稿</button><button :disabled="busy" @click="saveAndConfirm">保存并提交</button><div class="danger-zone"><button class="secondary" :disabled="busy" @click="deleteEntry">删除</button></div></div><div v-if="selected.errorMessage && ['rejected', 'uncertain', 'needs_confirmation'].includes(selectedState)" class="error-panel" role="alert"><strong>失败详情</strong><p>{{ selected.errorMessage }}</p><small v-if="selected.errorCode">错误代码：{{ selected.errorCode }}</small></div></template><p v-else class="empty">选择一条记录查看草稿。</p>
+      <section ref="detailElement" class="card detail" :class="{ 'detail-closing': detailClosing, 'detail-feedback-active': submitFeedbackState !== 'idle' }"><template v-if="selected && (selectedState === 'queued' || selectedState === 'processing')"><div class="section-title"><h2>记录 #{{ selected.id }}</h2><span class="state" :class="stateClass(selectedState)">{{ selectedStateLabel }}</span></div><div class="processing-panel"><p>{{ selectedState === 'queued' ? '记录已保存，等待后台解析。' : '后台正在解析这条记录，请稍候。' }}</p><p class="field-hint">解析完成后，字段明确的记录会自动提交；只有需要人工判断的记录才会停留在待人工确认。</p></div><div v-if="selectedState === 'processing'" class="actions"><button class="danger-action" :disabled="busy" @click="interruptProcessing">{{ busy ? '中断中…' : '中断解析' }}</button></div></template><template v-else-if="selected && draft"><div class="section-title"><h2>记录 #{{ selected.id }}</h2><span class="state" :class="stateClass(selectedState)">{{ selectedStateLabel }}</span></div><label :inert="submitFeedbackState !== 'idle'">类型<select v-model="draft.type" @change="resetCategoryForType"><option value="expense">支出</option><option value="income">收入</option></select></label><label :inert="submitFeedbackState !== 'idle'">日期<input v-model="draft.date"></label><label :inert="submitFeedbackState !== 'idle'">账户<select v-model="draft.accountName" :disabled="!syncedMetadata?.accounts.length"><option value="" disabled>{{ syncedMetadata?.accounts.length ? '请选择账户' : '请先同步当前账簿资料' }}</option><option v-for="item in syncedMetadata?.accounts ?? []" :key="`draft-account-${item.id}`" :value="item.name">{{ item.name }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">金额<input v-model="draft.amount" type="text" inputmode="decimal" autocomplete="off"></label><label :inert="submitFeedbackState !== 'idle'">分类<select v-model="draft.categoryName" :disabled="!categoryOptions.length"><option value="" disabled>{{ categoryOptions.length ? '请选择二级分类' : '请先同步当前账簿分类' }}</option><option v-for="item in categoryOptions" :key="`draft-category-${item.id}`" :value="categoryLabel(item)">{{ categoryLabel(item) }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">商家<select v-model="draft.storeName" :disabled="!syncedMetadata?.stores.length"><option value="">无</option><option v-for="item in syncedMetadata?.stores ?? []" :key="`draft-store-${item.id}`" :value="item.name">{{ item.name }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">项目<select v-model="draft.projectName" :disabled="!syncedMetadata?.projects.length"><option value="">无</option><option v-for="item in syncedMetadata?.projects ?? []" :key="`draft-project-${item.id}`" :value="item.name">{{ item.name }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">成员<select v-model="draft.memberName" :disabled="!syncedMetadata?.members.length"><option value="">无</option><option v-for="item in syncedMetadata?.members ?? []" :key="`draft-member-${item.id}`" :value="item.name">{{ item.name }}</option></select></label><label :inert="submitFeedbackState !== 'idle'">备注<textarea v-model="draft.memo"></textarea></label><div class="actions" :inert="submitFeedbackState !== 'idle'"><button v-if="debugEnabled" class="secondary" :disabled="busy || submitPreviewBusy || !requiredFieldsReady" @click="previewSubmit">{{ submitPreviewBusy ? '生成预览…' : '提交预览' }}</button><button class="secondary" :disabled="busy || !canEditEntryState(selectedState)" @click="reparse">重新解析</button><button :disabled="busy" @click="saveDraft">保存草稿</button><button :disabled="busy" @click="saveAndConfirm">保存并提交</button><div class="danger-zone"><button class="secondary" :disabled="busy" @click="deleteEntry">删除</button></div></div><div v-if="selected.errorMessage && ['rejected', 'uncertain', 'needs_confirmation'].includes(selectedState)" class="error-panel" role="alert"><strong>失败详情</strong><p>{{ selected.errorMessage }}</p><small v-if="selected.errorCode">错误代码：{{ selected.errorCode }}</small></div><div v-if="selectedState === 'uncertain'" class="actions resolve-actions"><span class="field-hint">写入结果未知，可能已入账；请先核对随手记流水，再人工处理。</span><button class="secondary" :disabled="busy || resolveBusy" @click="openResolve('committed')">确认已入账</button><button class="secondary" :disabled="busy || resolveBusy" @click="openResolve('rejected')">确认未入账</button></div></template><p v-else class="empty">选择一条记录查看草稿。</p>
         <Transition name="submit-feedback-fade">
           <div v-if="submitFeedbackState !== 'idle'" class="submit-feedback-overlay" role="status" aria-live="polite" aria-atomic="true">
             <section class="submit-feedback-card" :class="`submit-feedback-state-${submitFeedbackState}`">

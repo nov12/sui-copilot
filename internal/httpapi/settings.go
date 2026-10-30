@@ -261,7 +261,11 @@ func (s *Server) syncLLMModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "llm_not_configured", "请先配置"+client.ProviderLabel()+" API Key，再同步模型列表")
 		return
 	}
-	models, err := client.ListModels(r.Context())
+	// Bound the catalog sync independently of the caller: a stalled upstream
+	// must not hold the request open until the client gives up.
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	models, err := client.ListModels(ctx)
 	if err != nil {
 		var configErr *llm.ConfigError
 		if errors.As(err, &configErr) {

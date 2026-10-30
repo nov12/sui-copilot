@@ -103,6 +103,7 @@ export const api = {
   }),
   reparse: (entry: Entry, text = entry.inputText) => request<{ entry: Entry }>(`/api/v1/entries/${entry.id}/reparse`, { method: 'POST', body: JSON.stringify({ text }) }),
   interrupt: (entry: Entry) => request<{ entry: Entry }>(`/api/v1/entries/${entry.id}/interrupt`, { method: 'POST' }),
+  resolve: (entry: Entry, result: 'committed' | 'rejected', note = '') => request<{ entry: Entry }>(`/api/v1/entries/${entry.id}/resolve`, { method: 'POST', body: JSON.stringify({ result, note }) }),
   submitPreview: (entry: Entry) => request<SubmitPreview>(`/api/v1/entries/${entry.id}/submit-preview`, { method: 'POST' }),
   executeSubmitPreview: (entry: Entry, preview: SubmitPreview) => request<SubmitPreviewResult>(`/api/v1/entries/${entry.id}/submit-preview/execute`, { method: 'POST', body: JSON.stringify(preview) }),
   confirm: (entry: Entry) => request<{ entry: Entry; result?: { id?: string; budget?: string; price?: string } }>(`/api/v1/entries/${entry.id}/confirm`, { method: 'POST' }),

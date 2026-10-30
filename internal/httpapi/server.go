@@ -100,6 +100,7 @@ func newServer(db *store.DB, logger *slog.Logger, runtimeConfig config.Config, c
 		config:           runtimeConfig,
 		configPath:       configPath,
 		debug:            debug,
+		httpClient:       &http.Client{Timeout: 120 * time.Second},
 		processing:       make(map[int64]struct{}),
 		processingCancel: make(map[int64]context.CancelFunc),
 	}
@@ -159,7 +160,11 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	s.enqueueQueuedEntries()
 	go s.runDailyMaintenance(ctx)
 	go s.runReconciliationLoop(ctx)
-	server := &http.Server{Addr: addr, Handler: s.logging(s.mux), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	// WriteTimeout is sized for the slowest legitimate handler: syncing book
+	// metadata performs roughly nine rate-limited Sui requests (~15-20 s),
+	// and confirm chains several 30 s-budgeted upstream calls. It is still a
+	// hard bound so a stuck handler cannot hold a connection forever.
+	server := &http.Server{Addr: addr, Handler: s.logging(s.mux), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -333,17 +338,39 @@ var explicitAmountPatterns = []*regexp.Regexp{
 
 var explicitDecimalAmountPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]{1,2})?$`)
 
+// nonAmountUnitPattern matches a digit run directly followed by a non-amount
+// unit (time spans, counts, weights). "花了3小时"/"用了2次" then no longer
+// override the model amount.
+var nonAmountUnitPattern = regexp.MustCompile(`[0-9]+\s*(?:个?小时|个?半小时|分钟|秒钟|天|日|周|个?月|年|次|趟|遍|斤|公斤|克|千克|吨|个|只|条|件|瓶|杯|盒|包|袋|箱|台|部|辆|张|份|场|门|课|页|篇|字|首|幅|双|对|组|套|打|件套)`)
+
+// yuanFragmentPattern matches the colloquial "N块M" form ("4块5" = 4.5 元).
+// Its digits are not standalone amounts and would be misread as 4.
+var yuanFragmentPattern = regexp.MustCompile(`[0-9]+\s*块\s*[0-9]`)
+
 // extractExplicitAmount is a narrow local fallback for amounts explicitly
 // written in the input. Currency markers and amount verbs make this safe from
 // confusing quantities, product model numbers, or dates with the amount.
+// Matches for non-amount quantities and fragmented colloquial amounts are
+// discarded instead of overriding the model's value.
 func extractExplicitAmount(inputText string) string {
+	candidates := make([]string, 0, 2)
 	for _, pattern := range explicitAmountPatterns {
-		matches := pattern.FindStringSubmatch(inputText)
-		if len(matches) == 2 && explicitDecimalAmountPattern.MatchString(matches[1]) {
-			return matches[1]
+		for _, match := range pattern.FindAllStringSubmatch(inputText, -1) {
+			if len(match) == 2 && explicitDecimalAmountPattern.MatchString(match[1]) {
+				candidates = append(candidates, match[1])
+			}
 		}
 	}
-	return ""
+	if len(candidates) != 1 {
+		// Zero matches mean no explicit amount; more than one means the input
+		// is ambiguous about which number is the amount, so keep the model's.
+		return ""
+	}
+	candidate := candidates[0]
+	if nonAmountUnitPattern.MatchString(inputText) || yuanFragmentPattern.MatchString(inputText) {
+		return ""
+	}
+	return candidate
 }
 
 func inferStoreName(value, inputText string, options []string) string {
@@ -604,6 +631,10 @@ func (s *Server) reparseEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isEditableEntryState(e.State) {
+		if e.State == accounting.StateUncertain {
+			writeError(w, http.StatusConflict, "invalid_state", "待核对记录的随手记写入结果未知，可能已入账；请先核对或人工处理，不能重新解析")
+			return
+		}
 		writeError(w, http.StatusConflict, "invalid_state", "当前状态不能重新解析")
 		return
 	}
@@ -778,7 +809,7 @@ func (s *Server) executeSubmitPreview(w http.ResponseWriter, r *http.Request) {
 
 func isEditableEntryState(state string) bool {
 	switch state {
-	case accounting.StateQueued, accounting.StateProcessing, accounting.StateCommitting, accounting.StateCommitted:
+	case accounting.StateQueued, accounting.StateProcessing, accounting.StateCommitting, accounting.StateCommitted, accounting.StateUncertain:
 		return false
 	default:
 		return true

@@ -8,7 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 )
- 
+
 type Config struct {
 	Server  ServerConfig  `toml:"server"`
 	Logging LoggingConfig `toml:"logging"`

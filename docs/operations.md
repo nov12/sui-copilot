@@ -16,7 +16,7 @@
 
 ## 超时与失败处理
 
-后台单笔处理总时限为 10 分钟；每次随手记请求另有 30 秒时限（包括该请求触发的 SSO 恢复），调用方更短的时限仍然生效，避免单个请求长时间占用队列。请求超时或调用方断开后，提交结果使用独立的 5 秒时限保存到本地；写入结果不明确时保留为待核对，后续队列继续处理，不会重发记账请求。该本地保存仍可能因数据库或磁盘故障失败，服务会记录错误；遗留的提交状态将在下次启动时转为待核对。
+后台单笔处理总时限为 10 分钟；每次随手记请求另有 30 秒时限（包括该请求触发的 SSO 恢复），调用方更短的时限仍然生效，避免单个请求长时间占用队列。HTTP 响应写超时为 60 秒，按最慢的合法操作（同步账簿分类约 9 个限频请求）设定，仍是硬上限，卡住的连接不会无限挂起。请求超时或调用方断开后，提交结果使用独立的 5 秒时限保存到本地；写入结果不明确时保留为待核对，后续队列继续处理，不会重发记账请求。该本地保存仍可能因数据库或磁盘故障失败，服务会记录错误；遗留的提交状态将在下次启动时转为待核对。
 
 ## 配置
 
@@ -55,10 +55,11 @@ level = "info" # debug / info / warn / error
 - 服务启动时会将残留的 `processing` 记录转为 `rejected`，错误代码为 `processing_interrupted`，提示重新解析；残留的 `committing` 记录转为 `uncertain`，错误代码为 `sui_commit_interrupted`，先核对流水，不自动重试写入。
 - `GET /api/v1/entries`、`GET /api/v1/entries/{id}` 查询记录。
 - `PATCH /api/v1/entries/{id}` 按版本保存草稿。
-- `POST /api/v1/entries/{id}/reparse` 立即把记录放回 `queued` 待解析队列；后台使用当前账簿资料和解析补充提示重新生成草稿，字段明确时自动提交，字段不确定时进入待人工确认。
+- `POST /api/v1/entries/{id}/reparse` 立即把记录放回 `queued` 待解析队列；后台使用当前账簿资料和解析补充提示重新生成草稿，字段明确时自动提交，字段不确定时进入待人工确认。`uncertain` 待核对记录不能重新解析：其随手记写入结果未知，可能已入账，重新解析会走自动提交而造成重复记账；请先核对流水或使用人工处理接口。
 - `POST /api/v1/entries/{id}/interrupt` 只允许处理 `processing` 记录：先将其标记为可重新解析的失败记录，再取消当前模型请求，不需要重启服务；错误代码为 `processing_cancelled`。
 - `POST /api/v1/entries/reconcile-uncertain` 批量核对不确定记录；页面“刷新并核对”会调用它，服务也会每 5 分钟自动调用一次。页面对待核对记录每 15 秒读取本地状态，并在后台核对完成后更新详情；轮询不会额外请求随手记。
-- `POST /api/v1/entries/{id}/confirm` 确认处理；`DELETE /api/v1/entries/{id}` 删除记录。
+- `POST /api/v1/entries/{id}/confirm` 确认处理；`POST /api/v1/entries/{id}/resolve` 人工处理 `uncertain` 或 `rejected` 记录：核对随手记流水后指定 `result` 为 `committed`（确认已入账）或 `rejected`（确认未入账），可附 `note` 说明依据。`DELETE /api/v1/entries/{id}` 删除记录。
+- `POST /api/v1/processing/pause` 与 `POST /api/v1/processing/resume` 暂停和恢复后台解析队列。暂停只影响后台领取新任务：已在解析中的记录会照常完成，人工确认提交不受影响；队列里的待解析记录保留，恢复后按原顺序继续。
 - `GET/PATCH /api/v1/settings` 管理网页配置，包括模型服务商、API Base URL、模型和解析补充 prompt。随手记地址只在 TOML 中配置，不通过网页设置接口暴露。模型服务 API Key 只允许写入，GET 只返回“已配置”状态，不返回原文；网页保存的配置直接原子写入启动时使用的 TOML 文件，文件权限为 owner-only。随手记会话只能通过 `auth login` 建立和更新。
 - `GET /api/v1/llm/models`（`/api/v1/models` 和旧的 `/api/v1/openrouter/models` 兼容别名）读取当前模型服务缓存的模型目录；`POST /api/v1/llm/models/sync` 同步当前服务商的 `/models` 列表。自定义端点不支持 `/models` 时仍可手填模型 ID。
 - `GET /api/v1/sui/books` 读取 SQLite 中缓存的随手记账簿列表；`POST /api/v1/sui/books/sync` 才访问随手记并更新缓存。选择目标账簿会同时保存到 SQLite，网页中点击“同步当前账簿分类”后才由 `POST /api/v1/sui/sync` 同步完整分类资料和更新时间。分类按一级/二级层级展示，记账分类只能选择二级分类。

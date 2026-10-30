@@ -14,6 +14,7 @@ import (
 const backgroundProcessingTimeout = 10 * time.Minute
 const statePersistenceTimeout = 5 * time.Second
 const uncertainReconciliationInterval = 5 * time.Minute
+const processingPausePollInterval = 2 * time.Second
 
 type processingJob struct {
 	id int64
@@ -56,6 +57,21 @@ func (s *Server) runProcessingQueue() {
 			return
 		}
 		job := s.processingQueue[0]
+		s.processingMu.Unlock()
+		if paused, err := s.processingPaused(); err != nil {
+			s.logger.Error("read processing pause state failed", "error", err)
+		} else if paused {
+			// The pause switch only gates taking new jobs; in-flight work and
+			// manual endpoints are unaffected. Requeue and recheck shortly.
+			s.processingMu.Lock()
+			s.processingQueue = append([]processingJob{job}, s.processingQueue...)
+			s.processingMu.Unlock()
+			if !sleepContext(context.Background(), processingPausePollInterval) {
+				return
+			}
+			continue
+		}
+		s.processingMu.Lock()
 		s.processingQueue = s.processingQueue[1:]
 		ctx, cancel := context.WithTimeout(context.Background(), backgroundProcessingTimeout)
 		s.processingCancel[job.id] = cancel
@@ -70,6 +86,28 @@ func (s *Server) runProcessingQueue() {
 		delete(s.processing, job.id)
 		delete(s.processingCancel, job.id)
 		s.processingMu.Unlock()
+	}
+}
+
+func (s *Server) processingPaused() (bool, error) {
+	value, err := s.db.GetSetting(context.Background(), "processing_paused")
+	if err != nil {
+		return false, err
+	}
+	return value == "true", nil
+}
+
+// sleepContext pauses the worker for the given duration. It reports false
+// only when the process should stop; this server runs until exit, so it
+// always waits the full duration.
+func sleepContext(ctx context.Context, duration time.Duration) bool {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
