@@ -8,46 +8,54 @@ permissions:
   contents: write
 
 jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+
   release:
+    needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Check out
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
 
-      - name: Set up Task
-        uses: arduino/setup-task@v2
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
         with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: sui-copilot-*
+          path: bin/
+          merge-multiple: true
 
-      - name: Install dependencies
-        run: task setup
+      - name: Verify all downloads are present
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          for (const target of require('./scripts/release-targets.json')) {
+            const name = 'sui-copilot-' + target.replaceAll('/', '-') + (target.startsWith('windows/') ? '.exe' : '');
+            if (!fs.statSync('bin/' + name).size) throw new Error('Empty binary: ' + name);
+          }
+          JS
 
-      - name: Test
-        run: task test
+      - name: Include sample configuration
+        run: cp sui-copilot.toml.sample bin/
 
-      - name: Build release binaries
-        run: task build:release
+      - name: Generate checksums
+        working-directory: bin
+        run: sha256sum sui-copilot-* sui-copilot.toml.sample > SHA256SUMS
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: bin/sui-copilot-*
+          files: |
+            bin/sui-copilot-*
+            bin/sui-copilot.toml.sample
+            bin/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true

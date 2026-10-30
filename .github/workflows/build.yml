@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -14,12 +15,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.metadata.outputs.matrix }}
+      version: ${{ steps.metadata.outputs.version }}
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -46,13 +52,70 @@ jobs:
       - name: Test
         run: task test
 
-      - name: Build Linux binaries
-        run: task build:linux
+      - name: Build frontend
+        run: task web:build
+
+      - name: Define build matrix and version
+        id: metadata
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          node -e 'const targets = require("./scripts/release-targets.json"); console.log("matrix=" + JSON.stringify({include: targets.map(target => ({target, artifact: target.replaceAll("/", "-")}))}));' >> "$GITHUB_OUTPUT"
+          if [ "$REF_TYPE" = tag ]; then
+            version="$REF_NAME"
+          else
+            version=$(git describe --tags --always --dirty)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload frontend
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Download frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: internal/httpapi/static/dist/
+
+      - name: Build binary
+        env:
+          BUILD_VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: node scripts/build-release.mjs "$BUILD_VERSION" "$BUILD_TARGET"
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: sui-copilot-linux
-          path: bin/sui-copilot-linux-*
+          name: sui-copilot-${{ matrix.artifact }}
+          path: bin/sui-copilot-*
           if-no-files-found: error
           retention-days: 14

@@ -48,6 +48,23 @@
 
 ## 快速开始
 
+### 下载运行
+
+正式版本在 [GitHub Releases](https://github.com/nov12/sui-copilot/releases) 下载，发布包内已嵌入网页，不需要安装 Go 或 Node.js。没有 Release 时，请使用下方的源码构建方式。
+
+| 设备或系统 | 选择的文件后缀 |
+| --- | --- |
+| Windows | `windows-386.exe`（32 位 x86）、`windows-amd64.exe`（64 位 x86）、`windows-arm64.exe` |
+| Linux / x86 软路由 | `linux-386`（32 位 x86）、`linux-amd64`（64 位 x86） |
+| ARM 路由器、开发板 | `linux-armv5`、`linux-armv6`、`linux-armv7`、`linux-arm64` |
+| 其他 Linux 设备 | `linux-loong64`、`linux-ppc64le`、`linux-riscv64`、`linux-s390x` |
+| macOS | `darwin-amd64`（Intel）、`darwin-arm64`（Apple Silicon） |
+| FreeBSD | `freebsd-amd64`、`freebsd-arm64` |
+
+文件名均以 `sui-copilot-` 开头。路由器需运行兼容的系统并有足够的内存和可写存储；MIPS/MIPSEL 不受当前数据库依赖支持。ARM 版本选择和安装步骤见[下载与平台说明](docs/development.md#下载与平台)。
+
+### 源码构建
+
 需要安装 [Go](https://go.dev/)、[Node.js](https://nodejs.org/) 和 [Task](https://taskfile.dev/)：
 
 ```sh
@@ -85,7 +102,7 @@ cp sui-copilot.toml.sample bin/sui-copilot.toml
 ./bin/sui-copilot-<os>-<arch> --version
 ```
 
-推送 `v*` tag 会触发 GitHub Release，自动构建 Linux/macOS 的 amd64/arm64 二进制并生成发布说明。详见[开发与发布](docs/development.md)。
+推送 `v*` tag 会触发 GitHub Release，待全部平台构建成功后发布二进制、配置示例和 SHA-256 校验文件，并自动生成发布说明。详见[开发与发布](docs/development.md)。
 
 ## 文档
 
