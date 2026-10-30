@@ -1,4 +1,4 @@
-# 随手记记账桥接器：接口指南
+# 随手记记账助手：接口指南
 
 更新时间：2026-09-08
 状态：接口勘察完成，轻量登录与会话持久化已实现，真实账号验收待执行
@@ -48,7 +48,7 @@ level = "info" # debug / info / warn / error
 
 ### 2.1 轻量登录流程
 
-随手记当前登录页先请求 `/login.do?opt=vccode`，再按网页脚本计算密码摘要并请求 `/login.do`，成功后访问 `/auth.do`，解析并提交其可能返回的隐藏表单，最后进入 `www.sui.com/sso/redirect.do`。VCCode 和登录响应当前返回普通 JSON，同时兼容旧版 JSONP。桥接器应使用 `http.CookieJar` 接收登录和 SSO 跳转中的全部 `Set-Cookie`，而不是从浏览器手工复制单个 Cookie。
+随手记当前登录页先请求 `/login.do?opt=vccode`，再按网页脚本计算密码摘要并请求 `/login.do`，成功后访问 `/auth.do`，解析并提交其可能返回的隐藏表单，最后进入 `www.sui.com/sso/redirect.do`。VCCode 和登录响应当前返回普通 JSON，同时兼容旧版 JSONP。本工具应使用 `http.CookieJar` 接收登录和 SSO 跳转中的全部 `Set-Cookie`，而不是从浏览器手工复制单个 Cookie。
 
 “保持登录状态”对应登录请求中的 `status=1`。密码只在一次交互式登录进程中使用，不写入 TOML、SQLite、日志或 API 响应；会话文件使用本地 owner-only 密钥加密保存。服务进程启动时加载一份会话并共享请求限频状态；重新执行登录后应重启服务加载新会话。
 
@@ -58,7 +58,7 @@ level = "info" # debug / info / warn / error
 
 ```http
 GET https://www.sui.com/report_index.do
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 用途：确认 cookie 是否有效、读取当前用户的账本列表和当前账本。
@@ -90,7 +90,7 @@ Cookie: 由桥接器内部 CookieJar 自动附带当前会话
 
 ```http
 GET https://www.sui.com/tally/new.do
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 这是工程中最重要的读取接口。它返回 HTML，除了记账页面，还包含当前账本下的分类、商家、账户、项目和成员。
@@ -167,14 +167,14 @@ GET /tally/new.do
 
 ```http
 GET https://www.sui.com/category/budgetCategory.do
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 收入分类：
 
 ```http
 GET https://www.sui.com/category/incomeCategory.do
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 解析规则：
@@ -221,7 +221,7 @@ Cookie: 由桥接器内部 CookieJar 自动附带当前会话
 
 ```http
 GET https://www.sui.com/category/storeCategory.do
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 解析规则：
@@ -250,7 +250,7 @@ div[id^="category"]
 
 ```http
 GET https://www.sui.com/account/account.do
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 如果账户页的结构发生变化，也可以从记账页的账户选择器做临时兼容读取，但不应把它作为账户管理接口的长期替代。
@@ -278,7 +278,7 @@ Cookie: 由桥接器内部 CookieJar 自动附带当前会话
 
 ```http
 GET https://www.sui.com/category/projectCategory.do
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 解析规则：
@@ -298,7 +298,7 @@ div[id^="category"]
 
 ```http
 GET https://www.sui.com/category/member.do
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 解析规则：
@@ -345,7 +345,7 @@ div[id^="category"]
 ```http
 POST https://www.sui.com/tally/new.rmi
 Content-Type: application/x-www-form-urlencoded
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 核心参数：
@@ -415,7 +415,7 @@ memberId, memberName, transferStoreId, memo, url, date
 ```http
 POST https://www.sui.com/tally/payout.rmi
 Content-Type: application/x-www-form-urlencoded
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 ### 6.2 新增收入
@@ -423,7 +423,7 @@ Cookie: 由桥接器内部 CookieJar 自动附带当前会话
 ```http
 POST https://www.sui.com/tally/income.rmi
 Content-Type: application/x-www-form-urlencoded
-Cookie: 由桥接器内部 CookieJar 自动附带当前会话
+Cookie: 由本工具内部 CookieJar 自动附带当前会话
 ```
 
 通用表单字段：
@@ -500,7 +500,7 @@ price2=
 {"id":{"id":21693739113481},"budget":0,"price":1234.5}
 ```
 
-桥接器使用 `id.id` 作为随手记记录 ID，并保留响应中的 `budget` 和 `price`；旧版直接返回数值 `id` 的响应仍兼容。响应无法解析或没有有效记录 ID 时，结果必须进入 `uncertain`，不能自动重试。
+本工具使用 `id.id` 作为随手记记录 ID，并保留响应中的 `budget` 和 `price`；旧版直接返回数值 `id` 的响应仍兼容。响应无法解析或没有有效记录 ID 时，结果必须进入 `uncertain`，不能自动重试。
 
 必须遵守以下流程：
 
