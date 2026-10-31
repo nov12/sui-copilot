@@ -39,6 +39,28 @@ level = "info" # debug / info / warn / error
 
 建议先完成 `auth login` 再启动服务；服务进程会共享一份会话和请求限频状态。运行中手工重新登录后重启服务，让它加载新的会话文件。自动 SSO 恢复直接更新进程内会话，无需重启。恢复只接受登录站点到配置站点账本首页的 SSO 表单，不重放记账请求或切换账本请求；正常记账仍先校验目标账本，会话保存失败也会返回错误。
 
+## 服务管理与升级
+
+在 OpenWrt（procd）和 systemd 系统上，`service` 子命令把程序注册为系统服务，开机自启、异常退出自动拉起（对应 procd `respawn 3600 5 5`、systemd `Restart=on-failure`，停止时先发 TERM 并等待 5 秒）：
+
+```sh
+sudo ./sui-copilot-<os>-<arch> service install --config /opt/sui-copilot/sui-copilot.toml
+sudo ./sui-copilot-<os>-<arch> service status
+sudo ./sui-copilot-<os>-<arch> service stop    # start / stop / restart / status / uninstall
+```
+
+`install` 需要root，并要求程序、配置文件、数据目录使用绝对路径（默认即配置文件目录）；重复执行 `install` 会刷新服务定义并重启。仅显式传入的 `--addr` 和 `--data-dir` 会固化进服务定义，其余配置以 `--config` 指向的 TOML 文件为准。服务以 root 运行；OpenWrt 日志用 `logread | grep sui-copilot`，systemd 用 `journalctl -u sui-copilot`。程序和配置路径中的字符限制为字母、数字和 `._-/:=@[]`，包含空格或其他特殊字符的路径会被拒绝。
+
+`update` 子命令从 GitHub Releases 下载新版本：查询最新 Release（或 `--version vX.Y.Z` 指定版本）→ 下载对应平台资产 → 按 `SHA256SUMS` 校验 → 原子替换当前二进制 → 已注册服务且指向同一二进制时自动重启：
+
+```sh
+sudo ./sui-copilot-<os>-<arch> update --check   # 只检查，不下载
+sudo ./sui-copilot-<os>-<arch> update           # 升级到最新并重启服务
+sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
+```
+
+校验不通过或缺少校验文件时升级终止，不会替换二进制；没有跳过校验的开关。替换通过同目录临时文件一次性 rename 完成，任意时刻可执行文件路径上都是完整的旧版或新版，中断不会留下无法启动的状态，也不保留旧版备份（运行中的进程持有自己的 inode）。默认只在当前版本落后于目标时升级；当前版本更新（如未发布的构建）或相同时不替换，回退到旧版本需显式指定 `--version`。版本号仅比较 `vX.Y.Z` 三元组：`git describe` 后缀（如 `v0.1.0-5-gabcdef`、`-dirty`）视为与对应发布同版本；源码自建的 `dev` 版本视为可升级到任意发布。实际更新与手动 `service restart` 共用二进制所在目录上的非阻塞文件锁串行化：更新进行中时重启会被拒绝，锁不创建任何文件，随进程退出自动释放，`--check` 只读查询不需要目录写权限。升级在改动磁盘前先写入待重启标记 `<二进制名>.restart-pending`：升级中断或重启失败时，下次运行 `update` 会先自动补上重启（无需网络），补上或确认无需重启后才继续后续升级；标记写入失败则升级取消，磁盘不做任何改动；手动 `service restart` 成功同样会清除标记。升级完成后只有确认已注册服务的程序路径与本次替换的二进制一致才自动重启，重启失败会返回非零退出码；非 root 或未注册服务时提示手动重启但不报错。ARM32 资产按可执行文件名解析 armv5/6/7 变体，无法从文件名判断时使用 armv5 软浮点构建（在全部 ARM32 CPU 上可运行）。发布资产为裸二进制；校验通过但内容不是可执行文件时升级失败。API 限流时可设置 `GITHUB_TOKEN` 环境变量提高配额。Windows 不允许替换正在运行的程序映像，升级运行中的进程会失败，请先退出进程再执行 `update`；macOS、FreeBSD 暂不支持 `service` 子命令，`update` 可替换二进制但需手动重启进程。
+
 ## Debug 提交预览
 
 需要查看或执行 debug 提交预览时，直接运行带 `--debug` 的服务：
