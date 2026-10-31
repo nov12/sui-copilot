@@ -35,6 +35,20 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "service" {
+		if err := runService(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "service: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		if err := runUpdate(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "update: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	configPath := configPathFromArgs(os.Args[1:], envOr("SUI_COPILOT_CONFIG", defaultConfigPath()))
 	if absolutePath, err := filepath.Abs(configPath); err == nil {

@@ -94,6 +94,23 @@ cp sui-copilot.toml.sample bin/sui-copilot.toml
 
 日常配置、手机快捷指令、接口细节见[运行文档](docs/operations.md)。
 
+### 服务管理与自动升级
+
+在 OpenWrt（procd）或 systemd 系统上，可以注册成系统服务，开机自启、异常退出自动拉起：
+
+```sh
+sudo ./sui-copilot-<os>-<arch> service install --config /opt/sui-copilot/sui-copilot.toml
+sudo ./sui-copilot-<os>-<arch> service status
+```
+
+之后用同一二进制即可升级到最新版本；已注册服务时会自动重启生效：
+
+```sh
+sudo ./sui-copilot-<os>-<arch> update
+```
+
+详见[服务管理与升级](docs/operations.md#服务管理与升级)。
+
 ## 版本
 
 版本号来自 git tag，格式为 `vX.Y.Z`，构建时写入程序：
@@ -126,6 +143,8 @@ internal/accounting/        草稿、解析和校验
 internal/httpapi/           API 和静态资源入口
 internal/llm/               OpenAI-compatible Chat Completions 客户端
 internal/security/          AES-GCM 凭证封装
+internal/selfupdate/        GitHub Release 自升级
+internal/service/           procd/systemd 服务管理
 internal/store/             SQLite 连接、迁移和查询
 internal/sui/               随手记 HTTP 适配器
 web/                        Vue 3 + TypeScript 前端

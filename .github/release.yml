@@ -1,0 +1,30 @@
+# GitHub 会按本配置生成 Release 说明（release.yml 已开启
+# generate_release_notes: true）。本仓库提交信息遵循 conventional commits
+# 格式（如 `feat(service): 描述`），GitHub 按 commit 类型归入下列分组；
+# 分组标题对中文提交保持简洁，未匹配的提交进入"其他变更"。
+changelog:
+  exclude:
+    labels: []
+    authors:
+      - github-actions
+      - dependabot
+  categories:
+    - title: "✨ 新功能"
+      labels:
+        - "feat"
+    - title: "🐛 修复"
+      labels:
+        - "fix"
+    - title: "📝 文档"
+      labels:
+        - "docs"
+    - title: "🧹 重构"
+      labels:
+        - "refactor"
+    - title: "⚙️ 构建"
+      labels:
+        - "build"
+        - "ci"
+    - title: "其他变更"
+      labels:
+        - "*"

@@ -86,6 +86,6 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-推送 `v*` tag 会触发 [Release workflow](../.github/workflows/release.yml)，复用 [Build workflow](../.github/workflows/build.yml) 完成测试、一次前端构建和全部平台的并行构建。所有构建成功后才创建 GitHub Release，附带 17 个二进制、配置示例、`SHA256SUMS`，发布说明由 GitHub 自动生成。任一目标失败都会阻止发布。
+推送 `v*` tag 会触发 [Release workflow](../.github/workflows/release.yml)，复用 [Build workflow](../.github/workflows/build.yml) 完成测试、一次前端构建和全部平台的并行构建。所有构建成功后才创建 GitHub Release，附带 17 个二进制、配置示例、`SHA256SUMS`。发布说明由 GitHub 按本仓库的 conventional commits 提交类型自动分组生成（配置见 [.github/release.yml](../.github/release.yml)：`feat` → 新功能、`fix` → 修复、`docs` → 文档、`refactor` → 重构、`build`/`ci` → 构建），无需维护 CHANGELOG 文件。任一目标失败都会阻止发布。
 
 普通分支推送只产生 Actions 构建产物，不会创建 Release；创建并推送版本标签是正式发布动作，需要仓库所有者批准。上述 `v0.1.0` 仅为命令示例。
