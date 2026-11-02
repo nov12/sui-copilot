@@ -17,8 +17,13 @@ button.app-version:disabled { opacity: 1; cursor: default; }
 .version-spinner { flex-shrink: 0; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; animation: submit-feedback-spin 1s linear infinite; }
 .floating-feedback { position: fixed; top: max(24px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); z-index: 50; pointer-events: none; }
 .floating-feedback > span { display: block; padding: 8px 12px; border-radius: 8px; color: #94a3b8; background: #172033; font-size: .78rem; overflow-wrap: anywhere; }
-.update-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 12px; border: 1px solid #38bdf899; border-radius: 10px; background: #0c4a6e66; font-size: .86rem; }
-.update-notice a { color: #7dd3fc; text-underline-offset: 3px; }
+.update-topline { position: relative; width: 100%; padding: 12px 0; color: #bae6fd; background: #0c4a6e; border-bottom: 1px solid #38bdf866; font-size: .86rem; }
+.update-topline-content { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; width: min(1120px, calc(100% - 32px)); margin: 0 auto; overflow-wrap: anywhere; }
+.update-topline a { color: #e0f2fe; text-decoration: underline; text-underline-offset: 3px; }
+.update-topline .update-now { flex-shrink: 0; padding: 6px 12px; border-radius: 4px; background: #67b34c; color: #fff; font-size: .82rem; }
+.update-topline .update-now:hover:not(:disabled) { background: #579b40; }
+.update-manual, .update-error { flex-basis: 100%; font-size: .8rem; }
+.update-error { color: #fecaca; }
 .pill, .state { border-radius: 999px; padding: 5px 10px; background: #1e293b; color: #bae6fd; font-size: .78rem; }
 .card { background: #172033; border: 1px solid #26354d; border-radius: 18px; padding: 22px; box-shadow: 0 20px 50px #02061733; }
 .composer { margin-top: 28px; } label { display: grid; gap: 8px; color: #cbd5e1; font-size: .86rem; margin-top: 14px; } .composer > label { margin: 0 0 14px; font-size: 1rem; font-weight: 650; }
@@ -131,6 +136,7 @@ textarea, input, select { width: 100%; color: #e2e8f0; background: #0f172a; bord
   body { min-width: 0; }
   input, select, textarea { font-size: 16px; }
   .shell { width: 100%; padding: 20px 12px 40px; }
+  .update-topline-content { width: calc(100% - 24px); }
   .card { width: 100%; max-width: 100%; padding: 16px; border-radius: 14px; }
   .config-overlay, .submit-preview-overlay { padding: 12px; overflow-x: hidden; }
   .config-dialog, .submit-preview-dialog { width: 100%; max-width: none; }

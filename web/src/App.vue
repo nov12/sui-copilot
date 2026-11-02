@@ -26,6 +26,8 @@ const pageMetadataExpanded = ref(false)
 const debugEnabled = ref(false)
 const appVersion = ref('读取中…')
 const updateChecking = ref(false)
+const updateInstalling = ref(false)
+const updateInstallMessage = ref('')
 const floatingFeedback = ref('')
 const latestUpdateStatus = ref<UpdateStatus | null>(null)
 const availableUpdate = computed(() => {
@@ -59,6 +61,8 @@ const savedProvider = ref<Settings['llm_provider']>('openrouter')
 let refreshTimer: number | undefined
 let floatingFeedbackTimer: number | undefined
 let updateStatusTimer: number | undefined
+let updateInstallTimer: number | undefined
+let updateMonitorStopped = false
 let refreshInFlight = false
 
 const cleanupRetentionOptions = [
@@ -295,6 +299,10 @@ function applyUpdateStatus(status: UpdateStatus) {
   const previousCheck = latestUpdateStatus.value?.checkedAt
   if (previousCheck && (!status.checkedAt || Date.parse(status.checkedAt) < Date.parse(previousCheck))) return
   latestUpdateStatus.value = status
+  if (status.updating && !updateInstalling.value && !updateMonitorStopped) {
+    updateInstallMessage.value = ''
+    monitorUpdate(status.updatingVersion)
+  }
 }
 
 async function loadUpdateStatus() {
@@ -313,7 +321,7 @@ function showFloatingFeedback(text: string) {
 }
 
 async function checkUpdate() {
-  if (updateChecking.value) return
+  if (updateChecking.value || updateInstalling.value) return
   updateChecking.value = true
   try {
     const result = await api.checkUpdate()
@@ -324,6 +332,55 @@ async function checkUpdate() {
     showFloatingFeedback(error instanceof Error ? error.message : '检查更新失败，请稍后重试')
   } finally {
     updateChecking.value = false
+  }
+}
+
+function monitorUpdate(version: string) {
+  updateInstalling.value = true
+  const deadline = Date.now() + 15 * 60_000
+  async function poll() {
+    if (updateMonitorStopped) return
+    try {
+      const health = await api.health(AbortSignal.timeout(5000))
+      if (updateMonitorStopped) return
+      if (health.version === version) {
+        window.location.reload()
+        return
+      }
+      const status = await api.updateStatus(AbortSignal.timeout(5000))
+      if (updateMonitorStopped) return
+      applyUpdateStatus(status)
+      if (status.updateError) {
+        updateInstallMessage.value = status.updateError
+        updateInstalling.value = false
+        return
+      }
+    } catch (error) {
+      console.warn('等待更新后的服务恢复', error)
+    }
+    if (updateMonitorStopped) return
+    if (Date.now() >= deadline) {
+      updateInstallMessage.value = '尚未确认新版本启动，请检查服务状态；可运行 sui-copilot update 完成更新或重启。'
+      updateInstalling.value = false
+      return
+    }
+    updateInstallTimer = window.setTimeout(poll, 2000)
+  }
+  updateInstallTimer = window.setTimeout(poll, 2000)
+}
+
+async function installUpdate() {
+  const update = availableUpdate.value
+  if (!update || updateInstalling.value || !latestUpdateStatus.value?.canAutoUpdate) return
+  updateInstalling.value = true
+  updateInstallMessage.value = ''
+  try {
+    applyUpdateStatus(await api.installUpdate(update.version))
+    monitorUpdate(update.version)
+  } catch (error) {
+    updateInstallMessage.value = error instanceof Error ? error.message : '启动更新失败，请稍后重试'
+    updateInstalling.value = false
+    void loadUpdateStatus()
   }
 }
 
@@ -856,14 +913,24 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  updateMonitorStopped = true
   stopRefreshTimer()
   window.clearTimeout(floatingFeedbackTimer)
   window.clearInterval(updateStatusTimer)
+  window.clearTimeout(updateInstallTimer)
   document.removeEventListener('visibilitychange', loadUpdateStatus)
 })
 </script>
 
 <template>
+  <div v-if="availableUpdate" class="update-topline" role="status" aria-live="polite">
+    <div class="update-topline-content">
+      <span>发现新版本 {{ availableUpdate.version }}，<a :href="availableUpdate.url" target="_blank" rel="noopener noreferrer">查看更新详情</a></span>
+      <button type="button" class="update-now" :disabled="updateInstalling || !latestUpdateStatus?.canAutoUpdate" :aria-busy="updateInstalling" @click="installUpdate">{{ updateInstalling ? '正在更新，请稍候…' : '立即更新' }}</button>
+      <span v-if="!latestUpdateStatus?.canAutoUpdate" class="update-manual">当前运行方式不支持网页更新，请运行 <code>sui-copilot update</code> 并重启程序。</span>
+      <span v-if="updateInstallMessage || latestUpdateStatus?.updateError" class="update-error" role="alert">{{ updateInstallMessage || latestUpdateStatus?.updateError }}</span>
+    </div>
+  </div>
   <div class="shell">
     <Teleport to="body">
       <div class="floating-feedback" role="status"><Transition name="time-fade"><span v-if="floatingFeedback">{{ floatingFeedback }}</span></Transition></div>
@@ -872,7 +939,7 @@ onUnmounted(() => {
       <div class="brand">
         <div class="brand-meta">
           <p class="eyebrow">SUI COPILOT</p>
-          <button type="button" class="app-version" :disabled="updateChecking" :aria-busy="updateChecking" :aria-label="`当前版本 ${appVersion}，检查更新`" @click="checkUpdate">
+          <button type="button" class="app-version" :disabled="updateChecking || updateInstalling" :aria-busy="updateChecking" :aria-label="`当前版本 ${appVersion}，检查更新`" @click="checkUpdate">
             <span class="version-label">{{ appVersion }}</span>
             <svg v-if="updateChecking" class="version-spinner" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17" /></svg>
           </button>
@@ -881,7 +948,6 @@ onUnmounted(() => {
       </div>
       <div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="settingsOpen = true">配置</button></div>
     </header>
-    <p v-if="availableUpdate" class="notice update-notice" role="status">发现新版本 {{ availableUpdate.version }}<a :href="availableUpdate.url" target="_blank" rel="noopener noreferrer">查看更新</a></p>
     <Teleport to="body">
       <div v-if="settingsOpen" class="config-overlay">
         <section class="card config-dialog" role="dialog" aria-modal="true" aria-labelledby="config-title">

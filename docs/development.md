@@ -85,7 +85,15 @@ Copy-Item sui-copilot.toml.sample sui-copilot.toml
 
 未打 tag 的本地构建会显示提交哈希或 `dev`；工作区有未提交改动时会带 `-dirty` 后缀。
 
-网页标题上方与 `SUI COPILOT` 同行显示正在运行的后端版本，通过 `GET /api/v1/health` 读取，不使用前端 `package.json` 的版本号。服务启动后检查一次新版，此后每 6 小时在后台检查；网页读取缓存，发现新版时显示版本号与发布说明入口。点击淡色版本文字可立即手动检查，检查中显示小转圈，没有新版时短暂显示淡色提示。直接使用 `go run` 或未注入版本号的 `go build` 时显示 `dev`。
+网页标题上方与 `SUI COPILOT` 同行显示正在运行的后端版本，通过 `GET /api/v1/health` 读取，不使用前端 `package.json` 的版本号。服务启动后检查一次新版，此后每 6 小时在后台检查；网页读取缓存，发现新版时在 `.shell` 和页头之前显示全宽更新横幅，包含版本、“查看更新详情”和独立的“立即更新”按钮。布局参考 AdGuard Home 的 `client/src/components/ui/UpdateTopline.tsx`、`Topline.tsx`、`Topline.css` 以及 `client/src/components/App/index.tsx`（调研提交 `3e0cb52b1889deb6ce29b4073756f0dc59abf062`）；保留本项目深色配色，并在窄屏自动换行。
+
+启动入口仅为 root 且服务定义指向当前二进制的受管安装注入网页更新回调。网页和 CLI 共用 `installUpdateRelease` / `performUpdate`，不另写下载、校验或替换逻辑；网页固定使用已检查的目标版本，不能降级或更换仓库。网页通过 `POST /api/v1/updates` 启动更新；后台执行不随请求断开取消，API 拒绝重复更新和过期版本。
+
+网页更新在受管进程内运行，不能使用外部 CLI 的阻塞重启：systemd 通过 `systemctl --no-block restart` 提交重启任务，procd 通过 `ubus call service signal` 请求 SIGTERM，保留现有 respawn 配置，由服务管理器重新拉起进程。待重启标记记录目标版本；提交重启请求不代表已生效，只有对应版本进程启动且取得安装锁后才清除标记。发现未完成的更新时，网页明确提示使用 CLI 恢复，不能覆盖待重启标记，也不把“存在标记”误当成“二进制已经替换”。CLI 保留无网络补上重启的恢复能力。
+
+前端每 2 秒检查服务，单次读取最多等待 5 秒，遇到重启断连继续等待；只有 health 返回目标版本后才刷新网页加载新资源。更新失败保留横幅并显示错误，15 分钟仍未确认启动则提示检查服务状态，不误报成功。页面重新打开或更新请求响应断开时，可从状态接口恢复对进行中更新的等待。
+
+点击淡色版本文字可立即手动检查，检查中显示小转圈，没有新版时短暂显示淡色提示。直接使用 `go run` 或未注入版本号的 `go build` 时显示 `dev`。所有 CLI 入口共用 `parseFlags`，统一检查短、长选项形式；短选项表见 README，生成服务定义时统一转为长选项。
 
 发布说明来自仓库的 [CHANGELOG.md](../CHANGELOG.md)，不直接复制提交信息。平时把尚未发布的变化写入 `## [Unreleased]`；准备发布时，将本次条目整理到与 tag 完全一致的版本章节，例如 `## [vX.Y.Z] - YYYY-MM-DD`，再保留一个新的 `Unreleased` 章节。
 

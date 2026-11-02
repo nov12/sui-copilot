@@ -53,6 +53,9 @@ type Server struct {
 	suiWriteMu        sync.Mutex
 	updateMu          sync.RWMutex
 	lastUpdate        updateStatus
+	updateInstaller   func(string) error
+	updateVersion     string
+	updateError       string
 }
 
 // Handler returns the configured HTTP handler. It is useful for embedding the
@@ -115,6 +118,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/health", s.health)
 	s.mux.HandleFunc("GET /api/v1/updates", s.checkUpdate)
 	s.mux.HandleFunc("GET /api/v1/updates/status", s.getUpdateStatus)
+	s.mux.HandleFunc("POST /api/v1/updates", s.installUpdate)
 	s.mux.HandleFunc("GET /api/v1/entries", s.listEntries)
 	s.mux.HandleFunc("POST /api/v1/ingest", s.ingest)
 	s.mux.HandleFunc("GET /api/v1/entries/{id}", s.getEntry)

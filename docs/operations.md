@@ -79,6 +79,10 @@ sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
 - 服务启动后立即在后台检查一次 GitHub 最新 Release，此后每 6 小时检查一次；关闭网页不影响检查，停止服务时取消正在进行的检查。每次检查最长 15 秒，版本比较规则与 CLI 相同。仅提示新版，不自动下载或安装。自动检查失败只记日志，保留上次成功结果，等待下次定时检查；也可点击版本号立即重试。
 - `GET /api/v1/updates/status` 只读取最近一次成功检查的内存缓存，不访问 GitHub，返回 `currentVersion`、`latestVersion`、`updateAvailable`、`releaseUrl` 与 `checkedAt`。`checkedAt` 为成功检查的 UTC 时间，尚未成功检查时为空。网页打开、回到前台时读取，前台每分钟再读取一次；发现新版时显示提示条，无新版时保持安静。
 - `GET /api/v1/updates` 由网页点击版本号触发，每次实际查询 GitHub，并更新与后台共用的缓存；响应不缓存。失败返回错误，不会误报为最新版，也不会清除已有新版提示。手动检查无新版时短暂显示淡色提示。CLI 的 `update --check` 仍可独立检查。
+- 更新状态还包含 `canAutoUpdate`、`updating`、`updatingVersion` 和 `updateError`，分别表示是否支持网页更新、是否正在更新、此次更新固定的目标版本及最近更新错误。`updatingVersion` 不随后台发现另一个新版本而改变。
+- `POST /api/v1/updates` 接受 JSON `{"version":"vX.Y.Z"}`，只允许更新到已检查且有更新可用的版本；接受后返回 `202`，重复操作或版本过期返回 `409`，不支持网页更新返回 `501`。请求必须是 JSON，跨站 Origin 被拒绝，不接受自定义仓库等额外字段。反向代理需要透传原始 `Host`（如 Nginx 的 `proxy_set_header Host $http_host`），接口不采信任意 `X-Forwarded-Host`。现有单用户访问隔离要求仍然适用，不应把写接口直接暴露到公网。
+- 网页更新仅适用于 root 运行、已注册 systemd / OpenWrt 服务且服务定义指向当前二进制的安装，使用与 CLI 相同的安装锁、下载、SHA-256 校验、原子替换和待重启恢复机制。其他运行方式禁用网页更新按钮并提示 CLI / 手动重启。网页确认目标版本已运行后刷新；失败或等待超时会明确提示，不代表旧进程已经切换到新版本。
+- 网页更新由系统服务管理器完成自重启，不能在进程内部运行阻塞的外部 CLI 重启流程。待重启标记包含目标版本，目标进程启动后才确认清除；重启请求失败或更新中断时保留标记，并明确提示先使用 `sui-copilot update` 恢复，不覆盖未完成更新。CLI 补上待完成重启不需要网络，之后若继续查询新版仍需网络。
 - `POST /api/v1/ingest` 接收文本并立即保存为 `queued` 待解析记录，后台使用当前选择的模型服务按最近同步的当前账簿资料解析；字段明确时自动提交到随手记，只有不确定字段才进入人工确认。后台记账流程按提交顺序进入单工 FIFO 队列，同一时刻只处理一笔，避免连续记账时并行调用模型和随手记接口；人工确认提交也共享随手记写入闸门。同一输入类型和输入文本已有记录时返回 `409 duplicate_entry`，不会再次调用 AI。
 - 服务启动时会将残留的 `processing` 记录转为 `rejected`，错误代码为 `processing_interrupted`，提示重新解析；残留的 `committing` 记录转为 `uncertain`，错误代码为 `sui_commit_interrupted`，先核对流水，不自动重试写入。
 - `GET /api/v1/entries`、`GET /api/v1/entries/{id}` 查询记录。

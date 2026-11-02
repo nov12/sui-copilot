@@ -20,10 +20,10 @@ const updateUsage = `usage: sui-copilot update [flags]
 升级在改动磁盘前先记录待重启状态；重启未完成时，下次运行 update 优先补上重启（无需网络）。
 
 flags:
-  --check            只检查是否有新版本（只读，不写本地文件），不下载不替换
-  --version v0.2.0   升级（或回退）到指定版本；默认只在最新 Release 更新时升级
-  --repo owner/name  覆盖 GitHub 仓库（默认 ` + selfupdate.DefaultRepo + `）
-  -h, --help         显示帮助并退出
+  -c, --check            只检查是否有新版本（只读，不写本地文件），不下载不替换
+  -v, --version v0.2.0   升级（或回退）到指定版本；默认只在最新 Release 更新时升级
+  -r, --repo owner/name  覆盖 GitHub 仓库（默认 ` + selfupdate.DefaultRepo + `）
+  -h, --help             显示帮助并退出
 `
 
 // runUpdate implements `sui-copilot update`.
@@ -33,6 +33,9 @@ func runUpdate(args []string) error {
 	checkOnly := flags.Bool("check", false, "only check for a newer release")
 	wantVersion := flags.String("version", "", "upgrade (or downgrade) to a specific release tag")
 	repo := flags.String("repo", selfupdate.DefaultRepo, "GitHub repository (owner/name)")
+	flags.BoolVar(checkOnly, "c", *checkOnly, "only check for a newer release")
+	flags.StringVar(wantVersion, "v", *wantVersion, "target release tag")
+	flags.StringVar(repo, "r", *repo, "GitHub repository (owner/name)")
 	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
@@ -117,16 +120,74 @@ func runUpdate(args []string) error {
 	// harmlessly before updating again. A failed marker write aborts before
 	// any change; a failed replacement clears the marker because nothing was
 	// replaced.
-	if err := selfupdate.MarkRestartPending(executable); err != nil {
-		return fmt.Errorf("记录待重启状态失败，升级已取消: %w", err)
-	}
-	if err := performUpdate(ctx, httpClient, release, executable); err != nil {
-		_ = selfupdate.ClearRestartPending(executable)
+	if err := installUpdateRelease(ctx, httpClient, release, executable); err != nil {
 		return err
 	}
 
 	fmt.Printf("已替换为 %s。\n", release.TagName)
 	return updateRestartService(executable)
+}
+
+func webUpdateInstaller() func(string) error {
+	if requireRootCheck() {
+		return nil
+	}
+	manager := detectService()
+	if manager == nil {
+		return nil
+	}
+	executable, err := executablePath()
+	if err != nil {
+		return nil
+	}
+	installed, err := service.InstalledProgramPath(manager)
+	if err != nil || installed != executable {
+		return nil
+	}
+	return func(version string) error {
+		installed, err := service.InstalledProgramPath(manager)
+		if err != nil {
+			return err
+		}
+		if installed != executable {
+			return errors.New("服务已切换到其他程序，请重新启动并检查更新")
+		}
+		lock, err := selfupdate.TryInstallLock(executable)
+		if err != nil {
+			return err
+		}
+		if lock == nil {
+			return errors.New("另一个 update 进程正在进行，请稍后重试")
+		}
+		defer lock.Close()
+		if selfupdate.RestartPending(executable) {
+			return errors.New("上次更新尚未完成，请先运行 sui-copilot update 完成重启，再检查新版")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		httpClient := &http.Client{Timeout: 2 * time.Minute}
+		release, err := selfupdate.FetchRelease(ctx, httpClient, selfupdate.DefaultRepo, version)
+		if err != nil {
+			return err
+		}
+		if release.TagName != version || selfupdate.CompareBaseVersions(currentVersion(), version) >= 0 {
+			return errors.New("目标版本无效，请重新检查更新")
+		}
+		if err := installUpdateRelease(ctx, httpClient, release, executable); err != nil {
+			return err
+		}
+		return manager.RequestRestart()
+	}
+}
+
+func installUpdateRelease(ctx context.Context, httpClient *http.Client, release *selfupdate.Release, executable string) error {
+	if err := selfupdate.MarkRestartPending(executable, release.TagName); err != nil {
+		return fmt.Errorf("记录待重启状态失败，升级已取消: %w", err)
+	}
+	if err := performUpdate(ctx, httpClient, release, executable); err != nil {
+		return errors.Join(err, selfupdate.ClearRestartPending(executable))
+	}
+	return nil
 }
 
 // performUpdate downloads, verifies, extracts, and swaps in the new binary.

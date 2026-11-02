@@ -228,3 +228,115 @@ func TestUpdateCheckLoopCancelsInflightCheck(t *testing.T) {
 		}
 	})
 }
+
+func TestInstallUpdateRejectsInvalidRequests(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		body        string
+		contentType string
+		origin      string
+		unavailable bool
+		noUpdate    bool
+		running     bool
+		wantCode    int
+	}{
+		{name: "unsupported installation", body: `{"version":"v0.3.0"}`, unavailable: true, wantCode: 501},
+		{name: "already running", body: `{"version":"v0.3.0"}`, running: true, wantCode: 409},
+		{name: "stale version", body: `{"version":"v0.2.0"}`, wantCode: 409},
+		{name: "missing version", body: `{}`, wantCode: 409},
+		{name: "no update available", body: `{"version":"v0.3.0"}`, noUpdate: true, wantCode: 409},
+		{name: "invalid JSON", body: `{`, wantCode: 400},
+		{name: "unknown field", body: `{"version":"v0.3.0","repo":"untrusted/repo"}`, wantCode: 400},
+		{name: "multiple values", body: `{"version":"v0.3.0"} {}`, wantCode: 400},
+		{name: "oversized request", body: `{"version":"` + strings.Repeat("a", 1024) + `"}`, wantCode: 400},
+		{name: "form submission", body: `version=v0.3.0`, contentType: "application/x-www-form-urlencoded", wantCode: 415},
+		{name: "cross origin", body: `{"version":"v0.3.0"}`, origin: "https://untrusted.example", wantCode: 403},
+		{name: "opaque origin", body: `{"version":"v0.3.0"}`, origin: "null", wantCode: 403},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := &Server{logger: slog.Default(), mux: http.NewServeMux()}
+			server.lastUpdate = updateStatus{LatestVersion: "v0.3.0", UpdateAvailable: !test.noUpdate}
+			if test.running {
+				server.updateVersion = "v0.3.0"
+			}
+			if !test.unavailable {
+				server.SetUpdateInstaller(func(string) error {
+					t.Error("rejected request invoked installer")
+					return nil
+				})
+			}
+			server.routes()
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/updates", strings.NewReader(test.body))
+			contentType := test.contentType
+			if contentType == "" {
+				contentType = "application/json"
+			}
+			request.Header.Set("Content-Type", contentType)
+			request.Header.Set("Origin", test.origin)
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != test.wantCode {
+				t.Fatalf("status=%d, want=%d, body=%s", response.Code, test.wantCode, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestInstallUpdateTracksProgressAndFailure(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		server := &Server{logger: slog.Default(), mux: http.NewServeMux()}
+		server.lastUpdate = updateStatus{LatestVersion: "v0.3.0", UpdateAvailable: true}
+		server.routes()
+		finished := make(chan struct{})
+		calls := 0
+		server.SetUpdateInstaller(func(version string) error {
+			calls++
+			if version != "v0.3.0" {
+				t.Errorf("unexpected install version %q", version)
+			}
+			<-finished
+			return errors.New("download failed")
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/updates", strings.NewReader(`{"version":"v0.3.0"}`)).WithContext(ctx)
+		request.Header.Set("Content-Type", "application/json; charset=utf-8")
+		request.Header.Set("Origin", "http://example.com")
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		cancel()
+		synctest.Wait()
+		if response.Code != http.StatusAccepted || calls != 1 {
+			t.Fatalf("status=%d, calls=%d, body=%s", response.Code, calls, response.Body.String())
+		}
+		if status := cachedUpdateStatus(t, server); !status.CanAutoUpdate || !status.Updating || status.UpdatingVersion != "v0.3.0" || status.UpdateError != "" {
+			t.Fatalf("missing update progress: %+v", status)
+		}
+		server.updateMu.Lock()
+		server.lastUpdate.LatestVersion = "v0.4.0"
+		server.updateMu.Unlock()
+		if status := cachedUpdateStatus(t, server); status.LatestVersion != "v0.4.0" || status.UpdatingVersion != "v0.3.0" {
+			t.Fatalf("background check changed in-flight install target: %+v", status)
+		}
+		duplicate := httptest.NewRecorder()
+		duplicateRequest := httptest.NewRequest(http.MethodPost, "/api/v1/updates", strings.NewReader(`{"version":"v0.3.0"}`))
+		duplicateRequest.Header.Set("Content-Type", "application/json")
+		server.Handler().ServeHTTP(duplicate, duplicateRequest)
+		if duplicate.Code != http.StatusConflict || calls != 1 {
+			t.Fatalf("duplicate install was not rejected: code=%d calls=%d", duplicate.Code, calls)
+		}
+		close(finished)
+		synctest.Wait()
+		if status := cachedUpdateStatus(t, server); status.Updating || !strings.Contains(status.UpdateError, "download failed") || !status.UpdateAvailable {
+			t.Fatalf("failure was hidden or update notice was lost: %+v", status)
+		}
+		server.SetUpdateInstaller(func(string) error { return nil })
+		retry := httptest.NewRecorder()
+		retryRequest := httptest.NewRequest(http.MethodPost, "/api/v1/updates", strings.NewReader(`{"version":"v0.4.0"}`))
+		retryRequest.Header.Set("Content-Type", "application/json")
+		server.Handler().ServeHTTP(retry, retryRequest)
+		synctest.Wait()
+		if status := cachedUpdateStatus(t, server); retry.Code != http.StatusAccepted || status.Updating || status.UpdateError != "" {
+			t.Fatalf("retry did not clear failure: code=%d status=%+v", retry.Code, status)
+		}
+	})
+}

@@ -15,6 +15,7 @@ import (
 	"sui-copilot/internal/buildinfo"
 	"sui-copilot/internal/config"
 	"sui-copilot/internal/httpapi"
+	"sui-copilot/internal/selfupdate"
 	"sui-copilot/internal/store"
 )
 
@@ -32,12 +33,12 @@ commands:
   help [command]      查看帮助（也可使用 <command> -h 或 --help）
 
 flags:
-  --addr host:port    HTTP 监听地址（覆盖配置文件）
-  --config path      TOML 配置文件（默认 SUI_COPILOT_CONFIG 或可执行文件同目录的 sui-copilot.toml）
-  --data-dir path    数据目录（相对路径按配置文件目录解析）
-  --debug            开启仅用于调试的提交预览
-  -v, --version      显示程序版本并退出
-  -h, --help         显示帮助并退出
+  -a, --addr host:port  HTTP 监听地址（覆盖配置文件）
+  -c, --config path     TOML 配置文件（默认 SUI_COPILOT_CONFIG 或可执行文件同目录的 sui-copilot.toml）
+  -d, --data-dir path   数据目录（相对路径按配置文件目录解析）
+  -D, --debug           开启仅用于调试的提交预览
+  -v, --version         显示程序版本并退出
+  -h, --help            显示帮助并退出
 
 environment:
   SUI_COPILOT_CONFIG  默认配置文件路径；--config 优先，否则使用可执行文件同目录的 sui-copilot.toml
@@ -71,6 +72,10 @@ func run(args []string) error {
 	dataDir := flags.String("data-dir", defaults.Server.DataDir, "data directory (relative to configuration file)")
 	debug := flags.Bool("debug", false, "enable debug-only submit preview")
 	configPathFlag := flags.String("config", envOr("SUI_COPILOT_CONFIG", defaultConfigPath()), "TOML configuration file")
+	flags.StringVar(addr, "a", *addr, "HTTP listen address")
+	flags.StringVar(configPathFlag, "c", *configPathFlag, "TOML configuration file")
+	flags.StringVar(dataDir, "d", *dataDir, "data directory")
+	flags.BoolVar(debug, "D", *debug, "enable debug-only submit preview")
 	showVersion := flags.Bool("version", false, "print program version and exit")
 	flags.BoolVar(showVersion, "v", false, "print program version and exit")
 	flags.Usage = func() {
@@ -101,9 +106,9 @@ func run(args []string) error {
 
 	flags.Visit(func(value *flag.Flag) {
 		switch value.Name {
-		case "addr":
+		case "addr", "a":
 			runtimeConfig.Server.ListenAddr = *addr
-		case "data-dir":
+		case "data-dir", "d":
 			runtimeConfig.Server.DataDir = *dataDir
 		}
 	})
@@ -129,6 +134,12 @@ func run(args []string) error {
 	defer db.Close()
 
 	server := httpapi.NewServerWithConfigPathAndDebug(db, logger, runtimeConfig, configPath, *debug)
+	server.SetUpdateInstaller(webUpdateInstaller())
+	if executable, err := executablePath(); err != nil {
+		logger.Warn("resolve executable for update confirmation failed", "error", err)
+	} else if err := selfupdate.ConfirmRestart(executable, buildinfo.Version); err != nil {
+		logger.Warn("confirm update restart failed", "error", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if err := server.Run(ctx, *addr); err != nil {
