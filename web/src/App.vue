@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { api, type BookOption, type CategoryOption, type Draft, type Entry, type ModelOption, type SecretStatus, type Settings, type SubmitPreview, type SubmitPreviewResult, type SyncedMetadata } from './api'
+import { api, type BookOption, type CategoryOption, type Draft, type Entry, type ModelOption, type SecretStatus, type Settings, type SubmitPreview, type SubmitPreviewResult, type SyncedMetadata, type UpdateStatus } from './api'
 
 const text = ref('')
 const entries = ref<Entry[]>([])
@@ -25,6 +25,13 @@ const settingsMetadataExpanded = ref(false)
 const pageMetadataExpanded = ref(false)
 const debugEnabled = ref(false)
 const appVersion = ref('读取中…')
+const updateChecking = ref(false)
+const updateFeedback = ref('')
+const latestUpdateStatus = ref<UpdateStatus | null>(null)
+const availableUpdate = computed(() => {
+  const status = latestUpdateStatus.value
+  return status?.updateAvailable ? { version: status.latestVersion, url: status.releaseUrl } : null
+})
 const submitPreviewData = ref<SubmitPreview | null>(null)
 const submitPreviewBusy = ref(false)
 const submitPreviewHeaders = ref('')
@@ -50,6 +57,8 @@ const settingsForm = reactive<Settings>({ sui_book_name: '', cleanup_retention_d
 const secretForm = reactive({ llm_api_key: '' })
 const savedProvider = ref<Settings['llm_provider']>('openrouter')
 let refreshTimer: number | undefined
+let updateFeedbackTimer: number | undefined
+let updateStatusTimer: number | undefined
 let refreshInFlight = false
 
 const cleanupRetentionOptions = [
@@ -278,6 +287,41 @@ async function loadVersion() {
     appVersion.value = result.version || '读取失败'
   } catch {
     appVersion.value = '读取失败'
+  }
+}
+
+function applyUpdateStatus(status: UpdateStatus) {
+  const previousCheck = latestUpdateStatus.value?.checkedAt
+  if (previousCheck && (!status.checkedAt || Date.parse(status.checkedAt) < Date.parse(previousCheck))) return
+  latestUpdateStatus.value = status
+}
+
+async function loadUpdateStatus() {
+  if (document.visibilityState !== 'visible') return
+  try {
+    applyUpdateStatus(await api.updateStatus())
+  } catch (error) {
+    console.warn('读取更新检查结果失败', error)
+  }
+}
+
+async function checkUpdate() {
+  if (updateChecking.value) return
+  updateChecking.value = true
+  updateFeedback.value = ''
+  window.clearTimeout(updateFeedbackTimer)
+  try {
+    const result = await api.checkUpdate()
+    appVersion.value = result.currentVersion
+    applyUpdateStatus(result)
+    if (!result.updateAvailable) updateFeedback.value = '已是最新版本'
+  } catch (error) {
+    updateFeedback.value = error instanceof Error ? error.message : '检查更新失败，请稍后重试'
+  } finally {
+    updateChecking.value = false
+    if (updateFeedback.value) {
+      updateFeedbackTimer = window.setTimeout(() => { updateFeedback.value = '' }, 4000)
+    }
   }
 }
 
@@ -799,6 +843,9 @@ async function confirmDeleteEntry() {
 }
 
 onMounted(async () => {
+  void loadUpdateStatus()
+  updateStatusTimer = window.setInterval(() => { void loadUpdateStatus() }, 60_000)
+  document.addEventListener('visibilitychange', loadUpdateStatus)
   try {
     await Promise.all([refresh(), loadSettings(), loadBooks(), loadModels(), loadDebugStatus(), loadVersion()])
     await loadMetadata()
@@ -808,12 +855,29 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopRefreshTimer()
+  window.clearTimeout(updateFeedbackTimer)
+  window.clearInterval(updateStatusTimer)
+  document.removeEventListener('visibilitychange', loadUpdateStatus)
 })
 </script>
 
 <template>
   <div class="shell">
-    <header><div class="brand"><p class="eyebrow">SUI COPILOT</p><h1>随手记记账助手</h1><p class="app-version" aria-live="polite">版本 {{ appVersion }}</p></div><div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="settingsOpen = true">配置</button></div></header>
+    <header>
+      <div class="brand">
+        <div class="brand-meta">
+          <p class="eyebrow">SUI COPILOT</p>
+          <button type="button" class="app-version" :disabled="updateChecking" :aria-busy="updateChecking" :aria-label="`当前版本 ${appVersion}，检查更新`" @click="checkUpdate">
+            <span class="version-label">版本 {{ appVersion }}</span>
+            <svg v-if="updateChecking" class="version-spinner" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17" /></svg>
+          </button>
+          <span class="version-feedback" role="status"><Transition name="time-fade"><span v-if="updateFeedback">{{ updateFeedback }}</span></Transition></span>
+        </div>
+        <h1>随手记记账助手</h1>
+      </div>
+      <div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="settingsOpen = true">配置</button></div>
+    </header>
+    <p v-if="availableUpdate" class="notice update-notice" role="status">发现新版本 {{ availableUpdate.version }}<a :href="availableUpdate.url" target="_blank" rel="noopener noreferrer">查看更新</a></p>
     <Teleport to="body">
       <div v-if="settingsOpen" class="config-overlay">
         <section class="card config-dialog" role="dialog" aria-modal="true" aria-labelledby="config-title">

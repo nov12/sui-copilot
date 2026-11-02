@@ -6,9 +6,19 @@ button { cursor: pointer; }
 .shell { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 64px; }
 header, .section-title, .actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; } .header-actions { display: flex; align-items: center; gap: 10px; }
 h1, h2, p { margin: 0; } h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); letter-spacing: -.04em; } h2 { font-size: 1.05rem; }
-.eyebrow { color: #38bdf8; font-size: .72rem; letter-spacing: .14em; margin-bottom: 8px; }
+.eyebrow { color: #38bdf8; font-size: .72rem; letter-spacing: .14em; }
 .brand { min-width: 0; }
-.app-version { margin-top: 8px; color: #94a3b8; font-size: .78rem; overflow-wrap: anywhere; }
+.brand-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.brand-meta .eyebrow { flex-shrink: 0; }
+button.app-version { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 0; border: 0; border-radius: 0; color: #94a3b8; background: transparent; font-size: .78rem; font-weight: 400; cursor: default; }
+button.app-version:disabled { opacity: 1; cursor: default; }
+.app-version:focus-visible { outline: 1px solid #94a3b8; outline-offset: 4px; }
+.version-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.version-spinner { flex-shrink: 0; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; animation: submit-feedback-spin 1s linear infinite; }
+.version-feedback { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); z-index: 30; pointer-events: none; }
+.version-feedback > span { display: block; padding: 8px 12px; border-radius: 8px; color: #94a3b8; background: #172033; font-size: .78rem; }
+.update-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 12px; border: 1px solid #38bdf899; border-radius: 10px; background: #0c4a6e66; font-size: .86rem; }
+.update-notice a { color: #7dd3fc; text-underline-offset: 3px; }
 .pill, .state { border-radius: 999px; padding: 5px 10px; background: #1e293b; color: #bae6fd; font-size: .78rem; }
 .card { background: #172033; border: 1px solid #26354d; border-radius: 18px; padding: 22px; box-shadow: 0 20px 50px #02061733; }
 .composer { margin-top: 28px; } label { display: grid; gap: 8px; color: #cbd5e1; font-size: .86rem; margin-top: 14px; } .composer > label { margin: 0 0 14px; font-size: 1rem; font-weight: 650; }
