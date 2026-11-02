@@ -35,6 +35,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Check release notes
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          node --test scripts/*.test.mjs
+          node scripts/release-notes.mjs "$RELEASE_VERSION" > /dev/null
+
       - name: Set up Task
         uses: arduino/setup-task@v3.0.0
         with:

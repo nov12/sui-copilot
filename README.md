@@ -52,16 +52,16 @@
 
 正式版本在 [GitHub Releases](https://github.com/nov12/sui-copilot/releases) 下载，发布包内已嵌入网页，不需要安装 Go 或 Node.js。没有 Release 时，请使用下方的源码构建方式。
 
-| 设备或系统 | 选择的文件后缀 |
+| 设备或系统 | 选择的压缩包后缀 |
 | --- | --- |
-| Windows | `windows-386.exe`（32 位 x86）、`windows-amd64.exe`（64 位 x86）、`windows-arm64.exe` |
-| Linux / x86 软路由 | `linux-386`（32 位 x86）、`linux-amd64`（64 位 x86） |
-| ARM 路由器、开发板 | `linux-armv5`、`linux-armv6`、`linux-armv7`、`linux-arm64` |
-| 其他 Linux 设备 | `linux-loong64`、`linux-ppc64le`、`linux-riscv64`、`linux-s390x` |
-| macOS | `darwin-amd64`（Intel）、`darwin-arm64`（Apple Silicon） |
-| FreeBSD | `freebsd-amd64`、`freebsd-arm64` |
+| Windows | `windows-386.zip`（32 位 x86）、`windows-amd64.zip`（64 位 x86）、`windows-arm64.zip` |
+| Linux / x86 软路由 | `linux-386.tar.gz`（32 位 x86）、`linux-amd64.tar.gz`（64 位 x86） |
+| ARM 路由器、开发板 | `linux-armv5.tar.gz`、`linux-armv6.tar.gz`、`linux-armv7.tar.gz`、`linux-arm64.tar.gz` |
+| 其他 Linux 设备 | `linux-loong64.tar.gz`、`linux-ppc64le.tar.gz`、`linux-riscv64.tar.gz`、`linux-s390x.tar.gz` |
+| macOS | `darwin-amd64.tar.gz`（Intel）、`darwin-arm64.tar.gz`（Apple Silicon） |
+| FreeBSD | `freebsd-amd64.tar.gz`、`freebsd-arm64.tar.gz` |
 
-文件名均以 `sui-copilot-` 开头。路由器需运行兼容的系统并有足够的内存和可写存储；MIPS/MIPSEL 不受当前数据库依赖支持。ARM 版本选择和安装步骤见[下载与平台说明](docs/development.md#下载与平台)。
+文件名均以 `sui-copilot-` 开头，压缩包只包含对应平台的程序；配置示例保留在仓库。先用 `SHA256SUMS` 校验，再解压；首次安装需要配置示例时，从所下载版本的 tag 页面获取 `sui-copilot.toml.sample`。路由器需运行兼容的系统并有足够的内存和可写存储；MIPS/MIPSEL 不受当前数据库依赖支持。ARM 版本选择和安装步骤见[下载与平台说明](docs/development.md#下载与平台)。
 
 ### 源码构建
 
@@ -121,7 +121,7 @@ sudo ./sui-copilot-<os>-<arch> update
 ./bin/sui-copilot-<os>-<arch> --version
 ```
 
-只有推送版本 tag 才会触发发布构建，普通 push、PR 不运行构建。Linux、macOS、FreeBSD 提供 `.tar.gz`，Windows 提供 `.zip`；配置示例随压缩包提供，`SHA256SUMS` 校验压缩包。本地和 CI 共用发布构建入口，发布说明自动收录前一版本 tag 到当前 tag 的提交标题与完整正文。详见[开发与发布](docs/development.md)。
+只有推送版本 tag 才会触发发布构建，普通 push、PR 不运行构建。Linux、macOS、FreeBSD 提供 `.tar.gz`，Windows 提供 `.zip`，压缩包只包含程序，`SHA256SUMS` 校验压缩包。本地和 CI 共用发布构建入口。发布说明取自 [CHANGELOG](CHANGELOG.md) 中对应版本的条目，按功能变化、修复和升级注意事项整理，并附完整比较链接。详见[开发与发布](docs/development.md)。
 
 ## 文档
 

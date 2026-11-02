@@ -38,7 +38,7 @@ task dev --watch
 
 ## 下载与平台
 
-[GitHub Releases](https://github.com/nov12/sui-copilot/releases) 提供正式版本。Linux、macOS、FreeBSD 下载文件名为 `sui-copilot-<os>-<arch>.tar.gz`，Windows 为 `sui-copilot-windows-<arch>.zip`。每个压缩包包含对应平台的二进制和 `sui-copilot.toml.sample`，不需要单独下载配置示例。所有二进制都包含网页资源，并以 `CGO_ENABLED=0` 构建，无需设备另行安装 SQLite、Go、Node.js 或 glibc。
+[GitHub Releases](https://github.com/nov12/sui-copilot/releases) 提供正式版本。Linux、macOS、FreeBSD 下载文件名为 `sui-copilot-<os>-<arch>.tar.gz`，Windows 为 `sui-copilot-windows-<arch>.zip`。每个压缩包只包含对应平台的二进制；配置示例 `sui-copilot.toml.sample` 保留在仓库，需要时从所下载版本的 tag 页面获取。所有二进制都包含网页资源，并以 `CGO_ENABLED=0` 构建，无需设备另行安装 SQLite、Go、Node.js 或 glibc。
 
 | 系统 | 发布架构 |
 | --- | --- |
@@ -53,7 +53,7 @@ task dev --watch
 
 路由器可运行与其**系统及用户空间架构**匹配的 Linux/FreeBSD 二进制，并非所有型号都能安装。需要足够的空闲内存、可写存储、网络访问和系统 CA 证书，下载前应核对固件架构。当前 `modernc.org/sqlite v1.52.0` 的[官方支持列表](https://pkg.go.dev/modernc.org/sqlite@v1.52.0#hdr-Supported_platforms_and_architectures)不包括 MIPS/MIPSEL，因此不提供这些平台的文件；支持它们需要另行评估数据库实现。
 
-以 Linux amd64 为例，下载对应 `.tar.gz` 和 `SHA256SUMS` 到同一目录后，先校验压缩包，再解压运行：
+以 Linux amd64 为例，下载对应 `.tar.gz` 和 `SHA256SUMS` 到同一目录后，先校验压缩包，再解压运行。首次安装需要配置示例时，从对应 tag 的仓库页面另行下载 `sui-copilot.toml.sample` 到同一目录；下方复制配置的命令仅用于首次安装，升级时保留现有配置：
 
 ```sh
 grep '  sui-copilot-linux-amd64.tar.gz$' SHA256SUMS | sha256sum -c -
@@ -63,7 +63,7 @@ cp sui-copilot.toml.sample sui-copilot.toml
 ./sui-copilot-linux-amd64 --config ./sui-copilot.toml
 ```
 
-Windows 下载对应 `.zip` 和 `SHA256SUMS` 后，先比较压缩包的 SHA-256（必须与清单中同名文件的值一致），再解压运行。例如：
+Windows 下载对应 `.zip` 和 `SHA256SUMS` 后，先比较压缩包的 SHA-256（必须与清单中同名文件的值一致），再解压运行。首次安装需要配置示例时，从对应 tag 的仓库页面另行下载 `sui-copilot.toml.sample`，放入解压后的 `sui-copilot` 目录；升级时跳过复制配置。例如：
 
 ```powershell
 Get-FileHash .\sui-copilot-windows-amd64.zip -Algorithm SHA256
@@ -87,14 +87,18 @@ Copy-Item sui-copilot.toml.sample sui-copilot.toml
 
 网页标题下方显示正在运行的后端版本，通过 `GET /api/v1/health` 读取，不使用前端 `package.json` 的版本号。直接使用 `go run` 或未注入版本号的 `go build` 时显示 `dev`。
 
-发布说明直接从 git 历史生成，无需手写 CHANGELOG 或维护额外的版本章节。提交沿用仓库的中文 Conventional Commit 惯例，在正文中写清功能、修复和使用限制，发布时会完整保留。发布命令示例：
+发布说明来自仓库的 [CHANGELOG.md](../CHANGELOG.md)，不直接复制提交信息。平时把尚未发布的变化写入 `## [Unreleased]`；准备发布时，将本次条目整理到与 tag 完全一致的版本章节，例如 `## [vX.Y.Z] - YYYY-MM-DD`，再保留一个新的 `Unreleased` 章节。
+
+每版先用一段话说明重点，再按需要使用 `### 新增`、`### 改进`、`### 修复`、`### 升级注意` 等分类，只保留有内容的分类。每项用列表写清用户可见的行为、适用条件和影响，命令及文件名使用行内代码；需要用户操作时提供步骤或代码块。不要粘贴开发过程、测试清单或整段提交正文；完整提交记录由发布页末尾的比较链接提供。
+
+发布前运行 `node --test scripts/*.test.mjs` 和 `node scripts/release-notes.mjs vX.Y.Z`，检查提取结果。脚本只读取指定版本的章节，缺失或没有变更条目时失败，不会用 `Unreleased` 或提交正文代替。版本章节必须先随代码提交，再创建 tag。发布命令示例：
 
 ```sh
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-推送 `vX.Y.Z` tag 会触发 [Release workflow](../.github/workflows/release.yml)，复用仅接受发布调用的 [Build workflow](../.github/workflows/build.yml)，完成 Go 测试、一次前端构建和全部平台的并行编译及打包。所有目标成功后才创建 GitHub Release，附件仅包含 17 个平台压缩包和 `SHA256SUMS`。配置示例随包提供，不单独上传；压缩包中的 Unix 程序保留执行权限。发布说明收录当前 tag 的祖先中最近的版本 tag（`v[0-9]*`）之后至当前 tag 的全部非合并提交标题与正文，并附完整比较链接；首次发布收录当前 tag 可达的全部非合并提交。任一目标失败都会阻止发布。
+推送 `vX.Y.Z` tag 会触发 [Release workflow](../.github/workflows/release.yml)，复用仅接受发布调用的 [Build workflow](../.github/workflows/build.yml)。流程先验证对应版本的发布说明，再完成 Go 测试、一次前端构建和全部平台的并行编译及打包。所有目标成功后才创建 GitHub Release，附件仅包含 17 个平台压缩包和 `SHA256SUMS`。压缩包内只有对应平台的程序，Unix 程序保留执行权限。发布正文使用 CHANGELOG 的对应版本条目，自动附加安装与校验说明、该 tag 的配置示例链接，以及当前 tag 与其祖先中最近的版本 tag（`v[0-9]*`）的完整比较链接；首次发布附提交历史链接。说明校验或任一目标失败都会阻止发布。
 
 普通分支推送、PR 和手动操作不运行该构建流程，也不产生 Actions 构建产物。创建并推送版本标签是正式发布动作，需要仓库所有者批准。上述 `v0.1.0` 仅为命令示例，不应重新推送已有标签。
 

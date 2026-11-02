@@ -55,22 +55,20 @@ jobs:
           REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           if previous_tag=$(git describe --tags --match 'v[0-9]*' --abbrev=0 "${RELEASE_VERSION}^" 2>/dev/null); then
-            range="$previous_tag..$RELEASE_VERSION"
             changes_url="$REPOSITORY_URL/compare/$previous_tag...$RELEASE_VERSION"
           else
-            range="$RELEASE_VERSION"
             changes_url="$REPOSITORY_URL/commits/$RELEASE_VERSION"
           fi
+          node scripts/release-notes.mjs "$RELEASE_VERSION" > bin/release-notes.md
           {
-            printf '## 变更详情\n\n'
-            git log --reverse --no-merges --format='### %s (%h)%n%n%b' "$range"
-            printf '\n## 下载与升级\n\n'
+            printf '\n### 安装与校验\n\n'
             printf '%s\n' \
               '- Linux、macOS、FreeBSD 下载 `.tar.gz`，Windows 下载 `.zip`；先按 `SHA256SUMS` 校验，再解压。' \
-              '- 配置示例随压缩包提供，不要覆盖已有配置或数据。' \
-              '- `v0.2.0` 的旧更新器不支持压缩包，首次跨越此变更需停止服务后手动替换程序，再启动服务；之后可继续使用 `update`。'
-            printf '\n完整变更：%s\n' "$changes_url"
-          } > bin/release-notes.md
+              '- 压缩包只包含程序；升级时保留已有配置和数据。' \
+              '- 从 `v0.2.0` 首次升级需停止服务后手动替换程序，再启动服务；之后可使用 `update`。'
+            printf '%s\n' "- 首次安装需要配置示例时，查看 [sui-copilot.toml.sample]($REPOSITORY_URL/blob/$RELEASE_VERSION/sui-copilot.toml.sample)。"
+            printf '\n[完整变更](%s)\n' "$changes_url"
+          } >> bin/release-notes.md
 
       - name: Publish release
         uses: softprops/action-gh-release@v3.0.3
