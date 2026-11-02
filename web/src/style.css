@@ -15,8 +15,8 @@ button.app-version:disabled { opacity: 1; cursor: default; }
 .app-version:focus-visible { outline: 1px solid #94a3b8; outline-offset: 4px; }
 .version-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .version-spinner { flex-shrink: 0; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; animation: submit-feedback-spin 1s linear infinite; }
-.version-feedback { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); z-index: 30; pointer-events: none; }
-.version-feedback > span { display: block; padding: 8px 12px; border-radius: 8px; color: #94a3b8; background: #172033; font-size: .78rem; }
+.floating-feedback { position: fixed; top: max(24px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); z-index: 50; pointer-events: none; }
+.floating-feedback > span { display: block; padding: 8px 12px; border-radius: 8px; color: #94a3b8; background: #172033; font-size: .78rem; overflow-wrap: anywhere; }
 .update-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 12px; border: 1px solid #38bdf899; border-radius: 10px; background: #0c4a6e66; font-size: .86rem; }
 .update-notice a { color: #7dd3fc; text-underline-offset: 3px; }
 .pill, .state { border-radius: 999px; padding: 5px 10px; background: #1e293b; color: #bae6fd; font-size: .78rem; }

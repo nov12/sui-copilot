@@ -47,7 +47,7 @@ func runAuth(args []string) error {
 	flags.Usage = func() { fmt.Fprint(flags.Output(), authUsage) }
 	configPathFlag := flags.String("config", envOr("SUI_COPILOT_CONFIG", defaultConfigPath()), "TOML configuration file")
 	dataDirFlag := flags.String("data-dir", "", "data directory override")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := parseFlags(flags, args[1:]); err != nil {
 		return err
 	}
 	if flags.NArg() > 0 {
