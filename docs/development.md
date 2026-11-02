@@ -85,7 +85,7 @@ Copy-Item sui-copilot.toml.sample sui-copilot.toml
 
 未打 tag 的本地构建会显示提交哈希或 `dev`；工作区有未提交改动时会带 `-dirty` 后缀。
 
-网页标题下方显示正在运行的后端版本，通过 `GET /api/v1/health` 读取，不使用前端 `package.json` 的版本号。直接使用 `go run` 或未注入版本号的 `go build` 时显示 `dev`。
+网页标题上方与 `SUI COPILOT` 同行显示正在运行的后端版本，通过 `GET /api/v1/health` 读取，不使用前端 `package.json` 的版本号。服务启动后检查一次新版，此后每 6 小时在后台检查；网页读取缓存，发现新版时显示版本号与发布说明入口。点击淡色版本文字可立即手动检查，检查中显示小转圈，没有新版时短暂显示淡色提示。直接使用 `go run` 或未注入版本号的 `go build` 时显示 `dev`。
 
 发布说明来自仓库的 [CHANGELOG.md](../CHANGELOG.md)，不直接复制提交信息。平时把尚未发布的变化写入 `## [Unreleased]`；准备发布时，将本次条目整理到与 tag 完全一致的版本章节，例如 `## [vX.Y.Z] - YYYY-MM-DD`，再保留一个新的 `Unreleased` 章节。
 

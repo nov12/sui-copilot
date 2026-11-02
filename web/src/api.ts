@@ -91,8 +91,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+export interface UpdateStatus {
+  currentVersion: string
+  latestVersion: string
+  updateAvailable: boolean
+  releaseUrl: string
+  checkedAt: string
+}
+
 export const api = {
   health: () => request<{ status: string; version: string }>('/api/v1/health', { cache: 'no-store' }),
+  checkUpdate: () => request<UpdateStatus>('/api/v1/updates', { cache: 'no-store' }),
+  updateStatus: () => request<UpdateStatus>('/api/v1/updates/status', { cache: 'no-store' }),
   listEntries: () => request<{ entries: Entry[] }>('/api/v1/entries'),
   reconcileUncertain: () => request<{ status: string; checked: number; committed: number; needsConfirmation: number; errors: number }>('/api/v1/entries/reconcile-uncertain', { method: 'POST' }),
   ingest: (text: string) => request<{ entry: Entry }>('/api/v1/ingest', { method: 'POST', body: JSON.stringify({ text, inputType: 'text', source: 'web' }) }),

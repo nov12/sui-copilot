@@ -51,6 +51,8 @@ type Server struct {
 	reconcileMu       sync.Mutex
 	entryMu           sync.Mutex
 	suiWriteMu        sync.Mutex
+	updateMu          sync.RWMutex
+	lastUpdate        updateStatus
 }
 
 // Handler returns the configured HTTP handler. It is useful for embedding the
@@ -111,6 +113,8 @@ func newServer(db *store.DB, logger *slog.Logger, runtimeConfig config.Config, c
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/health", s.health)
+	s.mux.HandleFunc("GET /api/v1/updates", s.checkUpdate)
+	s.mux.HandleFunc("GET /api/v1/updates/status", s.getUpdateStatus)
 	s.mux.HandleFunc("GET /api/v1/entries", s.listEntries)
 	s.mux.HandleFunc("POST /api/v1/ingest", s.ingest)
 	s.mux.HandleFunc("GET /api/v1/entries/{id}", s.getEntry)
@@ -161,6 +165,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	s.enqueueQueuedEntries()
 	go s.runDailyMaintenance(ctx)
 	go s.runReconciliationLoop(ctx)
+	go s.runUpdateCheckLoop(ctx)
 	// WriteTimeout is sized for the slowest legitimate handler: syncing book
 	// metadata performs roughly nine rate-limited Sui requests (~15-20 s),
 	// and confirm chains several 30 s-budgeted upstream calls. It is still a
