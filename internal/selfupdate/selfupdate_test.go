@@ -383,7 +383,7 @@ func TestRestartPendingMarker(t *testing.T) {
 	if RestartPending(executable) {
 		t.Error("no marker expected initially")
 	}
-	if err := MarkRestartPending(executable); err != nil {
+	if err := MarkRestartPending(executable, "v0.3.0"); err != nil {
 		t.Fatalf("MarkRestartPending: %v", err)
 	}
 	if !RestartPending(executable) {
@@ -398,6 +398,40 @@ func TestRestartPendingMarker(t *testing.T) {
 	// Clearing without a marker is not an error.
 	if err := ClearRestartPending(executable); err != nil {
 		t.Errorf("ClearRestartPending without marker: %v", err)
+	}
+}
+
+func TestConfirmRestartRequiresTargetVersion(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "sui-copilot")
+	if err := MarkRestartPending(executable, "v0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := os.ReadFile(executable + restartPendingSuffix); err != nil || string(target) != "v0.3.0" {
+		t.Fatalf("target=%q, error=%v", target, err)
+	}
+	if err := ConfirmRestart(executable, "v0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !RestartPending(executable) {
+		t.Fatal("old process must not confirm a new version's restart")
+	}
+	if err := ConfirmRestart(executable, "v0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if RestartPending(executable) {
+		t.Fatal("matching target process must clear the restart marker")
+	}
+	if err := ConfirmRestart(executable, "v0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkRestartPending(executable, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfirmRestart(executable, "v0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !RestartPending(executable) {
+		t.Fatal("legacy marker must remain available for CLI recovery")
 	}
 }
 

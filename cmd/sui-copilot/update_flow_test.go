@@ -21,10 +21,11 @@ import (
 // fakeManager records service commands and reports a configurable program
 // path, standing in for the real init backends.
 type fakeManager struct {
-	programPath  string
-	pathErr      error
-	restartErr   error
-	restartCalls int
+	programPath         string
+	pathErr             error
+	restartErr          error
+	restartCalls        int
+	requestRestartCalls int
 }
 
 func (m *fakeManager) Name() string { return "fake" }
@@ -36,6 +37,11 @@ func (m *fakeManager) Start() error     { return errors.New("not used in these t
 func (m *fakeManager) Stop() error      { return errors.New("not used in these tests") }
 func (m *fakeManager) Restart() error {
 	m.restartCalls++
+	return m.restartErr
+}
+
+func (m *fakeManager) RequestRestart() error {
+	m.requestRestartCalls++
 	return m.restartErr
 }
 func (m *fakeManager) Status() (string, error) { return "", nil }
@@ -194,6 +200,96 @@ func binaryContent(t *testing.T, path string) []byte {
 		t.Fatalf("read installed binary: %v", err)
 	}
 	return got
+}
+
+func TestWebUpdateInstallerAvailability(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		nonRoot     bool
+		unsupported bool
+		pathErr     error
+		otherBinary bool
+		wantEnabled bool
+	}{
+		{name: "registered matching service", wantEnabled: true},
+		{name: "non-root", nonRoot: true},
+		{name: "unsupported system", unsupported: true},
+		{name: "unregistered", pathErr: service.ErrNotInstalled},
+		{name: "unreadable service", pathErr: errors.New("permission denied")},
+		{name: "different binary", otherBinary: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, restore := installUpdateFixture(t)
+			defer restore()
+			manager := &fakeManager{programPath: filepath.Join(dir, assetName), pathErr: test.pathErr}
+			if test.otherBinary {
+				manager.programPath = filepath.Join(dir, "other-binary")
+			}
+			withHooks(t, manager, restartServiceAfterUpdate)
+			requireRootCheck = func() bool { return test.nonRoot }
+			if test.unsupported {
+				detectService = func() service.Manager { return nil }
+			}
+			if enabled := webUpdateInstaller() != nil; enabled != test.wantEnabled {
+				t.Fatalf("enabled=%v, want=%v", enabled, test.wantEnabled)
+			}
+		})
+	}
+}
+
+func TestWebUpdateInstallerReusesVerifiedUpdateFlow(t *testing.T) {
+	dir, restore := installUpdateFixture(t)
+	defer restore()
+	newBinary := append(magicForPlatform(), bytes.Repeat([]byte{'W'}, 100)...)
+	newFakeUpdateServer(t, "v9.8.0", newBinary)
+	manager := &fakeManager{programPath: filepath.Join(dir, assetName)}
+	withHooksVersion(t, manager, restartServiceAfterUpdate, "v0.2.0")
+	installer := webUpdateInstaller()
+	if installer == nil {
+		t.Fatal("matching managed installation must support web updates")
+	}
+	if err := installer("v9.8.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(binaryContent(t, filepath.Join(dir, assetName)), newBinary) || manager.requestRestartCalls != 1 || manager.restartCalls != 0 {
+		t.Fatalf("web update did not replace binary and request supervisor restart: manager=%+v", manager)
+	}
+	if !selfupdate.RestartPending(filepath.Join(dir, assetName)) {
+		t.Fatal("restart request must not clear the marker before the target process starts")
+	}
+	if err := selfupdate.ConfirmRestart(filepath.Join(dir, assetName), "v9.8.0"); err != nil {
+		t.Fatal(err)
+	}
+	if selfupdate.RestartPending(filepath.Join(dir, assetName)) {
+		t.Fatal("target process confirmation left pending marker")
+	}
+}
+
+func TestWebUpdatePreservesPendingRestartForCLIRecovery(t *testing.T) {
+	dir, restore := installUpdateFixture(t)
+	defer restore()
+	manager := &fakeManager{programPath: filepath.Join(dir, assetName), restartErr: errors.New("supervisor unavailable")}
+	withHooksVersion(t, manager, restartServiceAfterUpdate, "v0.2.0")
+	newBinary := append(magicForPlatform(), bytes.Repeat([]byte{'R'}, 100)...)
+	newFakeUpdateServer(t, "v0.3.0", newBinary)
+	installer := webUpdateInstaller()
+	if err := installer("v0.3.0"); err == nil || !strings.Contains(err.Error(), "supervisor unavailable") {
+		t.Fatalf("restart failure must be reported: %v", err)
+	}
+	if !selfupdate.RestartPending(filepath.Join(dir, assetName)) || !bytes.Equal(binaryContent(t, filepath.Join(dir, assetName)), newBinary) {
+		t.Fatal("failed restart must retain installed binary and recovery marker")
+	}
+	selfupdate.APIBase = "http://127.0.0.1:1"
+	manager.restartErr = nil
+	if err := installer("v0.3.0"); err == nil || !strings.Contains(err.Error(), "上次更新尚未完成") {
+		t.Fatalf("pending restart must be preserved for CLI recovery: %v", err)
+	}
+	if manager.requestRestartCalls != 1 || manager.restartCalls != 0 {
+		t.Fatalf("web update must use supervisor requests only: manager=%+v", manager)
+	}
+	if err := installer("v0.4.0"); err == nil || !strings.Contains(err.Error(), "上次更新尚未完成") {
+		t.Fatalf("must not overwrite another pending restart: %v", err)
+	}
 }
 
 func TestUpdateReplacesBinaryAndClearsMarker(t *testing.T) {
