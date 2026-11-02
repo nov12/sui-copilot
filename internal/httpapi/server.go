@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"sui-copilot/internal/accounting"
+	"sui-copilot/internal/buildinfo"
 	"sui-copilot/internal/config"
 	"sui-copilot/internal/llm"
 	"sui-copilot/internal/store"
@@ -206,7 +207,8 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": buildinfo.Version})
 }
 
 type ingestRequest struct {

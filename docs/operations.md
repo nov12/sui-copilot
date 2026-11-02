@@ -75,6 +75,7 @@ sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
 
 ## HTTP 接口
 
+- `GET /api/v1/health` 返回 `{"status":"ok","version":"<构建版本>"}`，网页使用该版本号，响应不缓存。
 - `POST /api/v1/ingest` 接收文本并立即保存为 `queued` 待解析记录，后台使用当前选择的模型服务按最近同步的当前账簿资料解析；字段明确时自动提交到随手记，只有不确定字段才进入人工确认。后台记账流程按提交顺序进入单工 FIFO 队列，同一时刻只处理一笔，避免连续记账时并行调用模型和随手记接口；人工确认提交也共享随手记写入闸门。同一输入类型和输入文本已有记录时返回 `409 duplicate_entry`，不会再次调用 AI。
 - 服务启动时会将残留的 `processing` 记录转为 `rejected`，错误代码为 `processing_interrupted`，提示重新解析；残留的 `committing` 记录转为 `uncertain`，错误代码为 `sui_commit_interrupted`，先核对流水，不自动重试写入。
 - `GET /api/v1/entries`、`GET /api/v1/entries/{id}` 查询记录。

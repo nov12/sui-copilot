@@ -77,13 +77,15 @@ Copy-Item sui-copilot.toml.sample sui-copilot.toml
 
 ## 版本与发布
 
-版本号来自 git tag，格式为 `vX.Y.Z`。构建时通过 `git describe --tags --always --dirty` 写入二进制：
+版本号来自 git tag，格式为 `vX.Y.Z`。构建时通过 `git describe --tags --always --dirty` 写入二进制的 `sui-copilot/internal/buildinfo.Version`，CLI、网页和更新检查共用这一版本来源：
 
 ```sh
 ./bin/sui-copilot-linux-amd64 --version
 ```
 
 未打 tag 的本地构建会显示提交哈希或 `dev`；工作区有未提交改动时会带 `-dirty` 后缀。
+
+网页标题下方显示正在运行的后端版本，通过 `GET /api/v1/health` 读取，不使用前端 `package.json` 的版本号。直接使用 `go run` 或未注入版本号的 `go build` 时显示 `dev`。
 
 发布说明直接从 git 历史生成，无需手写 CHANGELOG 或维护额外的版本章节。提交沿用仓库的中文 Conventional Commit 惯例，在正文中写清功能、修复和使用限制，发布时会完整保留。发布命令示例：
 

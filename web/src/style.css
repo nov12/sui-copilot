@@ -7,6 +7,8 @@ button { cursor: pointer; }
 header, .section-title, .actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; } .header-actions { display: flex; align-items: center; gap: 10px; }
 h1, h2, p { margin: 0; } h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); letter-spacing: -.04em; } h2 { font-size: 1.05rem; }
 .eyebrow { color: #38bdf8; font-size: .72rem; letter-spacing: .14em; margin-bottom: 8px; }
+.brand { min-width: 0; }
+.app-version { margin-top: 8px; color: #94a3b8; font-size: .78rem; overflow-wrap: anywhere; }
 .pill, .state { border-radius: 999px; padding: 5px 10px; background: #1e293b; color: #bae6fd; font-size: .78rem; }
 .card { background: #172033; border: 1px solid #26354d; border-radius: 18px; padding: 22px; box-shadow: 0 20px 50px #02061733; }
 .composer { margin-top: 28px; } label { display: grid; gap: 8px; color: #cbd5e1; font-size: .86rem; margin-top: 14px; } .composer > label { margin: 0 0 14px; font-size: 1rem; font-weight: 650; }

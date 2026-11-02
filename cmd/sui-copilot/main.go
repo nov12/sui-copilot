@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"sui-copilot/internal/buildinfo"
 	"sui-copilot/internal/config"
 	"sui-copilot/internal/httpapi"
 	"sui-copilot/internal/store"
@@ -19,56 +20,88 @@ import (
 
 const defaultConfigName = "sui-copilot.toml"
 
-// version is set at build time with -ldflags "-X main.version=vX.Y.Z".
-var version = "dev"
+const rootUsage = `usage: sui-copilot [flags]
+       sui-copilot <command> [flags]
+
+不带子命令时启动 HTTP 服务和网页。
+
+commands:
+  auth login          登录随手记并加密保存会话
+  service <command>   管理系统服务：install、uninstall、start、stop、restart、status
+  update              从 GitHub Releases 检查或升级程序
+  help [command]      查看帮助（也可使用 <command> -h 或 --help）
+
+environment:
+  SUI_COPILOT_CONFIG  默认配置文件路径；--config 优先，否则使用可执行文件同目录的 sui-copilot.toml
+  GITHUB_TOKEN        update 查询 GitHub Releases 时使用的可选令牌
+`
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-version") {
-		fmt.Printf("sui-copilot %s\n", version)
-		return
+	if err := run(os.Args[1:]); err != nil && !errors.Is(err, flag.ErrHelp) {
+		fmt.Fprintf(os.Stderr, "sui-copilot: %v\n", err)
+		os.Exit(1)
 	}
-	if len(os.Args) > 1 && os.Args[1] == "auth" {
-		if err := runAuth(os.Args[2:]); err != nil {
-			logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-			logger.Error("sui auth", "error", err)
-			os.Exit(1)
+}
+
+func run(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "auth":
+			return runAuth(args[1:])
+		case "service":
+			return runService(args[1:])
+		case "update":
+			return runUpdate(args[1:])
+		case "help":
+			return run(append(args[1:], "--help"))
 		}
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "service" {
-		if err := runService(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "service: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "update" {
-		if err := runUpdate(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "update: %v\n", err)
-			os.Exit(1)
-		}
-		return
 	}
 
-	configPath := configPathFromArgs(os.Args[1:], envOr("SUI_COPILOT_CONFIG", defaultConfigPath()))
-	if absolutePath, err := filepath.Abs(configPath); err == nil {
-		configPath = absolutePath
+	defaults := config.Default()
+	flags := flag.NewFlagSet("sui-copilot", flag.ContinueOnError)
+	addr := flags.String("addr", defaults.Server.ListenAddr, "HTTP listen address (overrides configuration)")
+	dataDir := flags.String("data-dir", defaults.Server.DataDir, "data directory (relative to configuration file)")
+	debug := flags.Bool("debug", false, "enable debug-only submit preview")
+	configPathFlag := flags.String("config", envOr("SUI_COPILOT_CONFIG", defaultConfigPath()), "TOML configuration file")
+	showVersion := flags.Bool("version", false, "print program version and exit")
+	flags.Usage = func() {
+		fmt.Fprintf(flags.Output(), "sui-copilot %s\n\n%s\nflags:\n", buildinfo.Version, rootUsage)
+		flags.PrintDefaults()
+		fmt.Fprintln(flags.Output(), "  -h, --help\n    \tshow help and exit")
+	}
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() > 0 {
+		flags.Usage()
+		return fmt.Errorf("unknown command or argument %q", flags.Arg(0))
+	}
+	if *showVersion {
+		fmt.Printf("sui-copilot %s\n", buildinfo.Version)
+		return nil
+	}
+	configPath, err := filepath.Abs(*configPathFlag)
+	if err != nil {
+		return fmt.Errorf("resolve config path: %w", err)
 	}
 	runtimeConfig, err := config.Load(configPath)
 	if errors.Is(err, os.ErrNotExist) {
 		runtimeConfig = config.Default()
 		config.ApplyEnv(&runtimeConfig)
 	} else if err != nil {
-		logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-		logger.Error("load config", "path", configPath, "error", err)
-		os.Exit(1)
+		return fmt.Errorf("load config %s: %w", configPath, err)
 	}
 
-	addr := flag.String("addr", runtimeConfig.Server.ListenAddr, "HTTP listen address")
-	dataDir := flag.String("data-dir", runtimeConfig.Server.DataDir, "data directory")
-	debug := flag.Bool("debug", false, "enable debug-only submit preview")
-	flag.String("config", configPath, "TOML configuration file")
-	flag.Parse()
+	flags.Visit(func(value *flag.Flag) {
+		switch value.Name {
+		case "addr":
+			runtimeConfig.Server.ListenAddr = *addr
+		case "data-dir":
+			runtimeConfig.Server.DataDir = *dataDir
+		}
+	})
+	*addr = runtimeConfig.Server.ListenAddr
+	*dataDir = runtimeConfig.Server.DataDir
 	if !filepath.IsAbs(*dataDir) {
 		*dataDir = filepath.Join(filepath.Dir(configPath), *dataDir)
 	}
@@ -76,19 +109,15 @@ func main() {
 
 	logLevel, err := parseLogLevel(runtimeConfig.Logging.Level)
 	if err != nil {
-		logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-		logger.Error("invalid log level", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("invalid log level: %w", err)
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
-		logger.Error("create data directory", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("create data directory: %w", err)
 	}
 	db, err := store.Open(*dataDir + "/sui-copilot.db")
 	if err != nil {
-		logger.Error("open database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
 
@@ -96,9 +125,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if err := server.Run(ctx, *addr); err != nil {
-		logger.Error("server stopped", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("server stopped: %w", err)
 	}
+	return nil
 }
 
 func configureSessionPaths(cfg *config.Config, dataDir, configDir string) {
@@ -138,16 +167,4 @@ func parseLogLevel(value string) (slog.Level, error) {
 		return 0, fmt.Errorf("%q (want debug, info, warn, or error)", value)
 	}
 	return level, nil
-}
-
-func configPathFromArgs(args []string, fallback string) string {
-	for index, arg := range args {
-		if (arg == "--config" || arg == "-config") && index+1 < len(args) {
-			return args[index+1]
-		}
-		if strings.HasPrefix(arg, "--config=") || strings.HasPrefix(arg, "-config=") {
-			return strings.SplitN(arg, "=", 2)[1]
-		}
-	}
-	return fallback
 }

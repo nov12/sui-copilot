@@ -47,7 +47,7 @@ for (const target of buildTargets) {
   const output = `bin/${binary}`
   console.log(`Building ${target} (${version})`)
   run('go', [
-    'build', '-trimpath', '-ldflags', `-s -w -X main.version=${version}`,
+    'build', '-trimpath', '-ldflags', `-s -w -X sui-copilot/internal/buildinfo.Version=${version}`,
     '-o', output, './cmd/sui-copilot',
   ], {
     env: { ...process.env, GOOS: goos, GOARCH: goarch, GOARM: arm?.[1] ?? '', CGO_ENABLED: '0' },
