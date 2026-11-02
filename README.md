@@ -119,7 +119,7 @@ sudo ./sui-copilot-<os>-<arch> update
 ./bin/sui-copilot-<os>-<arch> --version
 ```
 
-推送 `v*` tag 会触发 GitHub Release，待全部平台构建成功后发布二进制、配置示例和 SHA-256 校验文件，并自动生成发布说明。详见[开发与发布](docs/development.md)。
+只有推送版本 tag 才会触发发布构建，普通 push、PR 不运行构建。Linux、macOS、FreeBSD 提供 `.tar.gz`，Windows 提供 `.zip`；配置示例随压缩包提供，`SHA256SUMS` 校验压缩包。本地和 CI 共用发布构建入口，发布说明自动收录前一版本 tag 到当前 tag 的提交标题与完整正文。详见[开发与发布](docs/development.md)。
 
 ## 文档
 

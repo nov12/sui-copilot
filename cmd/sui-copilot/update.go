@@ -132,11 +132,13 @@ func runUpdate(args []string) error {
 // performUpdate downloads, verifies, extracts, and swaps in the new binary.
 // All temporary files live next to the executable so the final renames stay on
 // one filesystem and remain atomic. The download lives in its own
-// subdirectory because a raw-binary asset extracts under the same name it was
-// downloaded as.
+// subdirectory so legacy raw assets do not collide with the staged executable.
 func performUpdate(ctx context.Context, httpClient *http.Client, release *selfupdate.Release, executable string) error {
 	dir := filepath.Dir(executable)
-	assetName := selfupdate.AssetNameForExecutable(executable)
+	assetName, err := release.DownloadName(selfupdate.AssetNameForExecutable(executable))
+	if err != nil {
+		return err
+	}
 	tempDir, err := os.MkdirTemp(dir, ".sui-copilot-update-")
 	if err != nil {
 		return fmt.Errorf("create temp directory: %w", err)

@@ -124,13 +124,13 @@ tasks:
         echo "built bin/sui-copilot-linux-arm64 ({{.VERSION}})"
 
   build:release:
-    desc: Build all supported release binaries
+    desc: Build all release packages and checksums in bin/release
     deps: [web:embed]
     cmds:
       - node scripts/build-release.mjs "{{.VERSION}}"
 
   build:target:
-    desc: Build one release target (for example TARGET=windows/amd64)
+    desc: Build one release package (for example TARGET=windows/amd64)
     deps: [web:embed]
     requires:
       vars: [TARGET]

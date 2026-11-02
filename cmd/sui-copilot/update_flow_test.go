@@ -56,11 +56,16 @@ type fakeUpdateServer struct {
 
 func newFakeUpdateServer(t *testing.T, tagName string, binary []byte) *fakeUpdateServer {
 	t.Helper()
+	return newFakeUpdateAssetServer(t, tagName, assetName, binary)
+}
+
+func newFakeUpdateAssetServer(t *testing.T, tagName, downloadName string, binary []byte) *fakeUpdateServer {
+	t.Helper()
 	sum := sha256.Sum256(binary)
 	fake := &fakeUpdateServer{
 		tagName: tagName,
 		binary:  binary,
-		sums:    hex.EncodeToString(sum[:]) + "  " + assetName + "\n",
+		sums:    hex.EncodeToString(sum[:]) + "  " + downloadName + "\n",
 	}
 	mux := http.NewServeMux()
 	writeRelease := func(w http.ResponseWriter, tag string) {
@@ -70,7 +75,7 @@ func newFakeUpdateServer(t *testing.T, tagName string, binary []byte) *fakeUpdat
 		json.NewEncoder(w).Encode(map[string]any{
 			"tag_name": tag,
 			"assets": []map[string]string{
-				{"name": assetName, "browser_download_url": fake.server.URL + "/download/" + assetName},
+				{"name": downloadName, "browser_download_url": fake.server.URL + "/download/" + downloadName},
 				{"name": "SHA256SUMS", "browser_download_url": fake.server.URL + "/download/SHA256SUMS"},
 			},
 		})
@@ -86,7 +91,7 @@ func newFakeUpdateServer(t *testing.T, tagName string, binary []byte) *fakeUpdat
 		}
 		writeRelease(w, fake.tagName)
 	})
-	mux.HandleFunc("/download/"+assetName, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/download/"+downloadName, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(fake.binary)
 	})
 	mux.HandleFunc("/download/SHA256SUMS", func(w http.ResponseWriter, r *http.Request) {

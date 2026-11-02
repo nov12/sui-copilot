@@ -2,8 +2,11 @@
 package selfupdate
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -31,7 +34,7 @@ var APIBase = "https://api.github.com"
 // userAgent identifies requests to api.github.com, which requires one.
 const userAgent = "sui-copilot-selfupdate"
 
-// AssetName is the release asset file name for the running platform.
+// AssetName is the executable file name for the given platform.
 func AssetName(goos, arch string) string {
 	name := "sui-copilot-" + goos + "-" + arch
 	if goos == "windows" {
@@ -40,7 +43,7 @@ func AssetName(goos, arch string) string {
 	return name
 }
 
-// AssetNameForExecutable returns the release asset name for the platform.
+// AssetNameForExecutable returns the executable name for the running platform.
 // ARM32 variants are taken from the executable's own release-style file name
 // when available; otherwise the software-float armv5 build is used, which
 // runs on every ARM32 CPU regardless of floating-point support.
@@ -180,6 +183,20 @@ func (r *Release) assetURL(name string) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrNoAsset, name)
 }
 
+func (release *Release) DownloadName(binaryName string) (string, error) {
+	archiveName := binaryName + ".tar.gz"
+	if strings.HasSuffix(binaryName, ".exe") {
+		archiveName = strings.TrimSuffix(binaryName, ".exe") + ".zip"
+	}
+	if _, err := release.assetURL(archiveName); err == nil {
+		return archiveName, nil
+	}
+	if _, err := release.assetURL(binaryName); err != nil {
+		return "", err
+	}
+	return binaryName, nil
+}
+
 // versionRegexp matches release tags vX.Y.Z and build metadata suffixes from
 // git describe output.
 var versionRegexp = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)`)
@@ -302,46 +319,101 @@ func downloadString(ctx context.Context, client *http.Client, rawURL string) (st
 	return string(data), nil
 }
 
-// ExtractBinary materializes the executable from a release asset into
-// destinationDir. Release assets are raw binaries; an ELF, Mach-O, or PE
-// header is required so that a checksum-verified but unexpected payload fails
-// loudly instead of being installed. The asset is copied through unchanged and
-// the destination path is returned.
 func ExtractBinary(archivePath, destinationDir string) (string, error) {
+	name := filepath.Base(archivePath)
+	if strings.HasSuffix(name, ".zip") {
+		return extractZipBinary(archivePath, destinationDir, strings.TrimSuffix(name, ".zip")+".exe")
+	}
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
-	bufferedReader := bufio.NewReader(file)
+	if strings.HasSuffix(name, ".tar.gz") {
+		return extractTarBinary(file, destinationDir, strings.TrimSuffix(name, ".tar.gz"))
+	}
+	return extractExecutable(file, destinationDir, name)
+}
+
+const maxExecutableSize = 256 << 20
+
+func extractExecutable(source io.Reader, destinationDir, name string) (string, error) {
+	bufferedReader := bufio.NewReader(source)
 	header, err := bufferedReader.Peek(4)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", fmt.Errorf("inspect asset: %w", err)
 	}
 	if !isExecutableMagic(header) {
-		return "", fmt.Errorf("asset is not a raw executable (want ELF, Mach-O, or PE)")
+		return "", fmt.Errorf("asset does not contain an executable (want ELF, Mach-O, or PE)")
 	}
-	destination := filepath.Join(destinationDir, filepath.Base(archivePath))
-	if same, err := isSameFile(archivePath, destination); err == nil && same {
-		return "", fmt.Errorf("extraction destination equals the source file")
-	}
+	destination := filepath.Join(destinationDir, name)
 	if err := copyFileMode(bufferedReader, destination, 0o755); err != nil {
 		return "", err
 	}
 	return destination, nil
 }
 
-// isSameFile reports whether two paths refer to the same file.
-func isSameFile(a, b string) (bool, error) {
-	infoA, err := os.Stat(a)
+func extractTarBinary(source io.Reader, destinationDir, name string) (string, error) {
+	compressed, err := gzip.NewReader(source)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	infoB, err := os.Stat(b)
+	defer compressed.Close()
+	archive := tar.NewReader(compressed)
+	var destination string
+	for {
+		header, err := archive.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if header.Name != name {
+			continue
+		}
+		if header.Typeflag != tar.TypeReg || header.Size > maxExecutableSize || destination != "" {
+			return "", fmt.Errorf("invalid executable entry: %s", name)
+		}
+		destination, err = extractExecutable(archive, destinationDir, name)
+		if err != nil {
+			return "", err
+		}
+	}
+	if destination == "" {
+		return "", fmt.Errorf("archive has no executable: %s", name)
+	}
+	if _, err := io.Copy(io.Discard, compressed); err != nil {
+		return "", err
+	}
+	return destination, nil
+}
+
+func extractZipBinary(archivePath, destinationDir, name string) (string, error) {
+	archive, err := zip.OpenReader(archivePath)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	return os.SameFile(infoA, infoB), nil
+	defer archive.Close()
+	var executable *zip.File
+	for _, entry := range archive.File {
+		if entry.Name != name {
+			continue
+		}
+		if !entry.Mode().IsRegular() || entry.UncompressedSize64 > maxExecutableSize || executable != nil {
+			return "", fmt.Errorf("invalid executable entry: %s", name)
+		}
+		executable = entry
+	}
+	if executable == nil {
+		return "", fmt.Errorf("archive has no executable: %s", name)
+	}
+	source, err := executable.Open()
+	if err != nil {
+		return "", err
+	}
+	defer source.Close()
+	return extractExecutable(source, destinationDir, name)
 }
 
 // isExecutableMagic reports whether the leading bytes look like a raw
@@ -422,13 +494,18 @@ func ClearRestartPending(executablePath string) error {
 
 // copyFileMode copies from a reader to destination and applies mode.
 func copyFileMode(source io.Reader, destination string, mode os.FileMode) error {
-	out, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	out, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, source); err != nil {
+	size, err := io.Copy(out, io.LimitReader(source, maxExecutableSize+1))
+	if err != nil {
 		out.Close()
 		return err
+	}
+	if size > maxExecutableSize {
+		out.Close()
+		return fmt.Errorf("executable exceeds %d bytes", maxExecutableSize)
 	}
 	return out.Close()
 }
