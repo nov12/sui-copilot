@@ -4,6 +4,8 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -65,6 +67,37 @@ func TestParseFlags(t *testing.T) {
 			}
 			if !slices.Equal(flags.Args(), test.wantArgs) {
 				t.Fatalf("remaining arguments = %q, want %q", flags.Args(), test.wantArgs)
+			}
+		})
+	}
+}
+
+func TestServiceInstallFlagAliases(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "app.toml")
+	if err := os.WriteFile(configPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(t.TempDir(), "data")
+	for _, args := range [][]string{
+		{"--config", configPath, "--addr", "127.0.0.1:8080", "--data-dir", dataDir},
+		{"-c", configPath, "-a", "127.0.0.1:8080", "-d", dataDir},
+		{"-c=" + configPath, "-a=127.0.0.1:8080", "-d=" + dataDir},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			resolved, explicit, err := resolveConfigPathForSubcommand(args, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolved != configPath || explicit.configPath != configPath || explicit.addr != "127.0.0.1:8080" || explicit.dataDir != dataDir {
+				t.Fatalf("aliases lost explicit values: config=%q flags=%+v", resolved, explicit)
+			}
+			options, err := buildServiceOptions(resolved, explicit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantArgs := []string{"--config=" + configPath, "--addr=127.0.0.1:8080", "--data-dir=" + dataDir}
+			if !slices.Equal(options.Args, wantArgs) {
+				t.Fatalf("service must persist canonical long flags: got=%q want=%q", options.Args, wantArgs)
 			}
 		})
 	}

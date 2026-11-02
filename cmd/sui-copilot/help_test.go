@@ -50,10 +50,10 @@ func TestCLIHelp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SUI_COPILOT_CONFIG", configPath)
-	rootTokens := []string{"sui-copilot " + buildinfo.Version, "auth login", "service", "install", "uninstall", "start", "stop", "restart", "status", "update", "--addr", "--config", "--data-dir", "--debug", "-v, --version", "-h, --help", "SUI_COPILOT_CONFIG", "GITHUB_TOKEN"}
-	authTokens := []string{"auth login", "--config", "--data-dir", "--help"}
-	serviceTokens := []string{"install", "uninstall", "start", "stop", "restart", "status", "--config", "--addr", "--data-dir", "--help"}
-	updateTokens := []string{"--check", "--version", "--repo", "--help"}
+	rootTokens := []string{"sui-copilot " + buildinfo.Version, "auth login", "service", "install", "uninstall", "start", "stop", "restart", "status", "update", "-a, --addr", "-c, --config", "-d, --data-dir", "-D, --debug", "-v, --version", "-h, --help", "SUI_COPILOT_CONFIG", "GITHUB_TOKEN"}
+	authTokens := []string{"auth login", "-c, --config", "-d, --data-dir", "--help"}
+	serviceTokens := []string{"install", "uninstall", "start", "stop", "restart", "status", "-c, --config", "-a, --addr", "-d, --data-dir", "--help"}
+	updateTokens := []string{"-c, --check", "-v, --version", "-r, --repo", "--help"}
 	type helpCase struct {
 		args   []string
 		tokens []string
@@ -64,6 +64,9 @@ func TestCLIHelp(t *testing.T) {
 		{[]string{"help", "service", "install"}, serviceTokens},
 		{[]string{"help", "update"}, updateTokens},
 		{[]string{"--config", configPath, "--data-dir", filepath.Join(dir, "data"), "-h"}, rootTokens},
+		{[]string{"auth", "login", "-c", configPath, "-d", "unused", "-h"}, authTokens},
+		{[]string{"service", "install", "-c", configPath, "-a", "127.0.0.1:8080", "-d", "unused", "-h"}, serviceTokens},
+		{[]string{"update", "-c", "-r", "owner/name", "-v", "v0.3.0", "-h"}, updateTokens},
 	}
 	for _, helpFlag := range []string{"-h", "--help"} {
 		cases = append(cases,
@@ -90,7 +93,7 @@ func TestCLIHelp(t *testing.T) {
 			}
 			for _, line := range strings.Split(output, "\n") {
 				fields := strings.Fields(line)
-				if len(fields) > 0 && strings.HasPrefix(fields[0], "-") && !strings.HasPrefix(fields[0], "--") && fields[0] != "-h," && fields[0] != "-v," {
+				if len(fields) > 0 && strings.HasPrefix(fields[0], "-") && !strings.HasPrefix(fields[0], "--") && !(len(fields[0]) == 3 && strings.HasSuffix(fields[0], ",")) {
 					t.Errorf("help uses a nonstandard flag: %s", line)
 				}
 			}
@@ -111,7 +114,7 @@ func TestCLIVersionIgnoresInvalidConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SUI_COPILOT_CONFIG", configPath)
-	for _, args := range [][]string{{"--version"}, {"-v"}, {"--config", configPath, "--version"}, {"--config=" + configPath, "-v"}} {
+	for _, args := range [][]string{{"--version"}, {"-v"}, {"--config", configPath, "--version"}, {"--config=" + configPath, "-v"}, {"-c", configPath, "-a", "127.0.0.1:8080", "-d", "unused", "-D", "-v"}, {"-c=" + configPath, "-D=false", "-v"}} {
 		output, err := runCLIProcess(t, args...)
 		if err != nil || output != "sui-copilot "+buildinfo.Version+"\n" {
 			t.Fatalf("version args=%q: err=%v output=%q", args, err, output)
@@ -120,7 +123,7 @@ func TestCLIVersionIgnoresInvalidConfig(t *testing.T) {
 }
 
 func TestCLIInvalidArgumentsFail(t *testing.T) {
-	for _, args := range [][]string{
+	cases := [][]string{
 		{"unknown-command"},
 		{"--unknown-flag"},
 		{"-version"},
@@ -142,7 +145,20 @@ func TestCLIInvalidArgumentsFail(t *testing.T) {
 		{"update", "-check"},
 		{"update", "-version", "v0.2.3"},
 		{"update", "-repo", "owner/name"},
-	} {
+		{"update", "-c", "-v", "v0.2.3"},
+	}
+	for _, command := range []string{"uninstall", "start", "stop", "restart", "status"} {
+		for _, option := range []string{"--config", "-c", "--addr", "-a", "--data-dir", "-d"} {
+			cases = append(cases, []string{"service", command, option, "unused"})
+		}
+	}
+	for _, prefix := range [][]string{nil, {"auth", "login"}, {"service", "install"}, {"update"}} {
+		for _, option := range []string{"--a", "--c", "--d", "--D", "--r", "--v", "--h", "-help"} {
+			args := append(append([]string{}, prefix...), option)
+			cases = append(cases, args)
+		}
+	}
+	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			output, err := runCLIProcess(t, args...)
 			if err == nil || !strings.Contains(output, "sui-copilot:") {

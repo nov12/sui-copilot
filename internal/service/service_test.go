@@ -14,6 +14,45 @@ type fakeRunner struct {
 	failOn   map[string]error
 }
 
+func TestServiceArgumentsRequireCanonicalLongFlags(t *testing.T) {
+	for _, argument := range []string{"-config=/opt/app.toml", "-c=/opt/app.toml", "--c=/opt/app.toml", "---config=/opt/app.toml", "--=/opt/app.toml", "--config"} {
+		if err := validateArg(argument); err == nil {
+			t.Errorf("accepted noncanonical service argument %q", argument)
+		}
+	}
+	for _, argument := range []string{"--config=/opt/app.toml", "--addr=127.0.0.1:8080", "--data-dir=/opt/data", "--debug=true"} {
+		if err := validateArg(argument); err != nil {
+			t.Errorf("rejected canonical service argument %q: %v", argument, err)
+		}
+	}
+}
+
+func TestRequestRestartUsesSupervisor(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+		manager func(*fakeRunner) Manager
+	}{
+		{name: "systemd", command: "systemctl --no-block restart sui-copilot.service", manager: func(runner *fakeRunner) Manager { return &systemdManager{run: runner} }},
+		{name: "procd", command: `ubus call service signal {"name":"sui-copilot","signal":15}`, manager: func(runner *fakeRunner) Manager { return &procdManager{run: runner} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := newFakeRunner()
+			manager := test.manager(runner)
+			if err := manager.RequestRestart(); err != nil {
+				t.Fatal(err)
+			}
+			if len(runner.commands) != 1 || runner.commands[0] != test.command {
+				t.Fatalf("unexpected restart request: %q", runner.commands)
+			}
+			runner.failOn[test.command] = errors.New("supervisor unavailable")
+			if err := manager.RequestRestart(); err == nil || !strings.Contains(err.Error(), "supervisor unavailable") {
+				t.Fatalf("restart request failure was hidden: %v", err)
+			}
+		})
+	}
+}
+
 func newFakeRunner() *fakeRunner {
 	return &fakeRunner{failOn: map[string]error{}}
 }

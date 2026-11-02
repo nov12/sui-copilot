@@ -27,6 +27,7 @@ type Manager interface {
 	Start() error
 	Stop() error
 	Restart() error
+	RequestRestart() error
 	Status() (string, error)
 }
 
@@ -145,7 +146,8 @@ func safePath(path string) bool {
 // service definition.
 func validateArg(arg string) error {
 	name, value, found := strings.Cut(arg, "=")
-	if !found || !strings.HasPrefix(name, "-") || name == "-" || !safeValue(value) {
+	validName := strings.HasPrefix(name, "--") && !strings.HasPrefix(name, "---") && len(name) > 3
+	if !found || !validName || !safeValue(value) {
 		return fmt.Errorf("service argument %q must use --flag=value form with safe characters (letters, digits, and ._-=:@[])", arg)
 	}
 	return nil

@@ -81,3 +81,30 @@ func TestTryInstallLockMissingDirectory(t *testing.T) {
 		t.Error("lock on a missing directory should fail")
 	}
 }
+
+func TestConfirmRestartRespectsInstallLock(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "sui-copilot")
+	if err := MarkRestartPending(executable, "v0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := TryInstallLock(executable)
+	if err != nil || lock == nil {
+		t.Fatalf("cannot acquire install lock: %v", err)
+	}
+	defer lock.Close()
+	if err := ConfirmRestart(executable, "v0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !RestartPending(executable) {
+		t.Fatal("must not clear a marker while another update owns the lock")
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfirmRestart(executable, "v0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if RestartPending(executable) {
+		t.Fatal("matching version must confirm restart once the lock is released")
+	}
+}

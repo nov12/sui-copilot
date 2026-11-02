@@ -471,8 +471,27 @@ const restartPendingSuffix = ".restart-pending"
 
 // MarkRestartPending records that executablePath was replaced but the service
 // restart has not been confirmed yet.
-func MarkRestartPending(executablePath string) error {
-	return os.WriteFile(executablePath+restartPendingSuffix, []byte{}, 0o600)
+func MarkRestartPending(executablePath, version string) error {
+	return os.WriteFile(executablePath+restartPendingSuffix, []byte(version), 0o600)
+}
+
+func ConfirmRestart(executablePath, version string) error {
+	lock, err := TryInstallLock(executablePath)
+	if err != nil || lock == nil {
+		return err
+	}
+	defer lock.Close()
+	target, err := os.ReadFile(executablePath + restartPendingSuffix)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if string(target) != version {
+		return nil
+	}
+	return ClearRestartPending(executablePath)
 }
 
 // RestartPending reports whether a previous replacement is waiting for its
