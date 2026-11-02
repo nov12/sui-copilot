@@ -50,7 +50,7 @@ func TestCLIHelp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SUI_COPILOT_CONFIG", configPath)
-	rootTokens := []string{"sui-copilot " + buildinfo.Version, "auth login", "service", "install", "uninstall", "start", "stop", "restart", "status", "update", "-a, --addr", "-c, --config", "-d, --data-dir", "-D, --debug", "-v, --version", "-h, --help", "SUI_COPILOT_CONFIG", "GITHUB_TOKEN"}
+	rootTokens := []string{"sui-copilot " + buildinfo.Version, "auth login", "service", "install", "uninstall", "start", "stop", "restart", "status", "update", "-a, --addr", "-c, --config", "-d, --data-dir", "-D, --debug", "-v, --version", "-h, --help", "SUI_COPILOT_CONFIG"}
 	authTokens := []string{"auth login", "-c, --config", "-d, --data-dir", "--help"}
 	serviceTokens := []string{"install", "uninstall", "start", "stop", "restart", "status", "-c, --config", "-a, --addr", "-d, --data-dir", "--help"}
 	updateTokens := []string{"-c, --check", "-v, --version", "-r, --repo", "--help"}
