@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,12 +23,13 @@ flags:
   --check            只检查是否有新版本（只读，不写本地文件），不下载不替换
   --version v0.2.0   升级（或回退）到指定版本；默认只在最新 Release 更新时升级
   --repo owner/name  覆盖 GitHub 仓库（默认 ` + selfupdate.DefaultRepo + `）
+  -h, --help         显示帮助并退出
 `
 
 // runUpdate implements `sui-copilot update`.
 func runUpdate(args []string) error {
 	flags := flag.NewFlagSet("update", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
+	flags.Usage = func() { fmt.Fprint(flags.Output(), updateUsage) }
 	checkOnly := flags.Bool("check", false, "only check for a newer release")
 	wantVersion := flags.String("version", "", "upgrade (or downgrade) to a specific release tag")
 	repo := flags.String("repo", selfupdate.DefaultRepo, "GitHub repository (owner/name)")

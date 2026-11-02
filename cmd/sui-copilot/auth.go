@@ -17,17 +17,41 @@ import (
 	"sui-copilot/internal/sui"
 )
 
+const authUsage = `usage: sui-copilot auth login [flags]
+
+commands:
+  login              登录随手记并加密保存会话
+
+login flags:
+  --config path      TOML 配置文件（默认 SUI_COPILOT_CONFIG 或可执行文件同目录的 sui-copilot.toml）
+  --data-dir path    覆盖数据目录（相对路径按配置文件目录解析）
+  -h, --help         显示帮助并退出
+`
+
 func runAuth(args []string) error {
-	if len(args) == 0 || args[0] != "login" {
-		return errors.New("usage: sui-copilot auth login [--config path] [--data-dir path]")
+	if len(args) == 0 {
+		fmt.Fprint(os.Stderr, authUsage)
+		return errors.New("auth: missing command")
+	}
+	switch args[0] {
+	case "-h", "--help", "help":
+		fmt.Fprint(os.Stdout, authUsage)
+		return nil
+	case "login":
+	default:
+		fmt.Fprint(os.Stderr, authUsage)
+		return fmt.Errorf("auth: unknown command %q", args[0])
 	}
 
 	flags := flag.NewFlagSet("auth login", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
+	flags.Usage = func() { fmt.Fprint(flags.Output(), authUsage) }
 	configPathFlag := flags.String("config", envOr("SUI_COPILOT_CONFIG", defaultConfigPath()), "TOML configuration file")
 	dataDirFlag := flags.String("data-dir", "", "data directory override")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
+	}
+	if flags.NArg() > 0 {
+		return fmt.Errorf("auth login: unknown argument %q", flags.Arg(0))
 	}
 
 	configPath, err := filepath.Abs(*configPathFlag)

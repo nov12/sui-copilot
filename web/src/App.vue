@@ -24,6 +24,7 @@ const basePromptMessage = ref('')
 const settingsMetadataExpanded = ref(false)
 const pageMetadataExpanded = ref(false)
 const debugEnabled = ref(false)
+const appVersion = ref('读取中…')
 const submitPreviewData = ref<SubmitPreview | null>(null)
 const submitPreviewBusy = ref(false)
 const submitPreviewHeaders = ref('')
@@ -268,6 +269,15 @@ async function loadDebugStatus() {
     debugEnabled.value = result.enabled
   } catch {
     debugEnabled.value = false
+  }
+}
+
+async function loadVersion() {
+  try {
+    const result = await api.health()
+    appVersion.value = result.version || '读取失败'
+  } catch {
+    appVersion.value = '读取失败'
   }
 }
 
@@ -790,7 +800,7 @@ async function confirmDeleteEntry() {
 
 onMounted(async () => {
   try {
-    await Promise.all([refresh(), loadSettings(), loadBooks(), loadModels(), loadDebugStatus()])
+    await Promise.all([refresh(), loadSettings(), loadBooks(), loadModels(), loadDebugStatus(), loadVersion()])
     await loadMetadata()
     startRefreshTimer()
   } catch (error) { message.value = error instanceof Error ? error.message : '加载失败' }
@@ -803,7 +813,7 @@ onUnmounted(() => {
 
 <template>
   <div class="shell">
-    <header><div><p class="eyebrow">SUI COPILOT</p><h1>随手记记账助手</h1></div><div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="settingsOpen = true">配置</button></div></header>
+    <header><div class="brand"><p class="eyebrow">SUI COPILOT</p><h1>随手记记账助手</h1><p class="app-version" aria-live="polite">版本 {{ appVersion }}</p></div><div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="settingsOpen = true">配置</button></div></header>
     <Teleport to="body">
       <div v-if="settingsOpen" class="config-overlay">
         <section class="card config-dialog" role="dialog" aria-modal="true" aria-labelledby="config-title">

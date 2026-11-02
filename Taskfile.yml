@@ -108,7 +108,7 @@ tasks:
         GOOS="$(go env GOOS)"
         GOARCH="$(go env GOARCH)"
         OUTPUT="bin/sui-copilot-${GOOS}-${GOARCH}"
-        go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o "$OUTPUT" ./cmd/sui-copilot
+        go build -trimpath -ldflags "-s -w -X sui-copilot/internal/buildinfo.Version={{.VERSION}}" -o "$OUTPUT" ./cmd/sui-copilot
         echo "built $OUTPUT ({{.VERSION}})"
 
   build:linux:
@@ -118,8 +118,8 @@ tasks:
       - mkdir -p bin
       - |
         set -eu
-        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-copilot-linux-amd64 ./cmd/sui-copilot
-        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-copilot-linux-arm64 ./cmd/sui-copilot
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X sui-copilot/internal/buildinfo.Version={{.VERSION}}" -o bin/sui-copilot-linux-amd64 ./cmd/sui-copilot
+        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X sui-copilot/internal/buildinfo.Version={{.VERSION}}" -o bin/sui-copilot-linux-arm64 ./cmd/sui-copilot
         echo "built bin/sui-copilot-linux-amd64 ({{.VERSION}})"
         echo "built bin/sui-copilot-linux-arm64 ({{.VERSION}})"
 
@@ -180,7 +180,7 @@ tasks:
       - bin/sui-copilot-{{OS}}-{{ARCH}}
     cmds:
       - mkdir -p bin
-      - go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o bin/sui-copilot-{{OS}}-{{ARCH}} ./cmd/sui-copilot
+      - go build -trimpath -ldflags "-s -w -X sui-copilot/internal/buildinfo.Version={{.VERSION}}" -o bin/sui-copilot-{{OS}}-{{ARCH}} ./cmd/sui-copilot
 
   clean:
     desc: Remove build artifacts

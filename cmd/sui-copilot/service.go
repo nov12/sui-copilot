@@ -4,11 +4,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"sui-copilot/internal/buildinfo"
 	"sui-copilot/internal/selfupdate"
 	"sui-copilot/internal/service"
 )
@@ -24,9 +24,10 @@ commands:
   status      查看服务状态
 
 install flags:
-  --config path    配置文件路径（默认与可执行文件同目录）
+  --config path    配置文件路径（默认 SUI_COPILOT_CONFIG 或与可执行文件同目录）
   --addr host:port 覆盖监听地址（仅显式指定时写入服务定义）
   --data-dir path  覆盖数据目录（仅显式指定时写入服务定义）
+  -h, --help       显示帮助并退出（适用于所有 service 子命令）
 
 支持 OpenWrt（procd）和 systemd；其他系统暂不支持。
 `
@@ -38,6 +39,11 @@ func runService(args []string) error {
 		return errors.New("service: missing command")
 	}
 	command, rest := args[0], args[1:]
+	switch command {
+	case "-h", "--help", "help":
+		fmt.Fprint(os.Stdout, serviceUsage)
+		return nil
+	}
 
 	configPath, explicit, err := resolveConfigPathForSubcommand(rest)
 	if err != nil {
@@ -89,9 +95,6 @@ func runService(args []string) error {
 			fmt.Print(output)
 		}
 		return err
-	case "-h", "--help", "help":
-		fmt.Print(serviceUsage)
-		return nil
 	default:
 		fmt.Fprintf(os.Stderr, "service: unknown command %q\n\n", command)
 		fmt.Fprint(os.Stderr, serviceUsage)
@@ -177,7 +180,7 @@ type explicitFlags struct {
 // management subcommands and reports which ones were set explicitly.
 func resolveConfigPathForSubcommand(args []string) (string, *explicitFlags, error) {
 	flags := flag.NewFlagSet("service", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
+	flags.Usage = func() { fmt.Fprint(flags.Output(), serviceUsage) }
 	explicit := &explicitFlags{}
 	flags.StringVar(&explicit.configPath, "config", "", "configuration file")
 	flags.StringVar(&explicit.addr, "addr", "", "listen address")
@@ -219,5 +222,5 @@ var (
 	detectService        = service.Detect
 	requireRootCheck     = func() bool { return os.Geteuid() != 0 }
 	updateRestartService = restartServiceAfterUpdate
-	currentVersion       = func() string { return version }
+	currentVersion       = func() string { return buildinfo.Version }
 )
