@@ -126,6 +126,13 @@ func (m *procdManager) Restart() error {
 	return nil
 }
 
+func (m *procdManager) RequestRestart() error {
+	if _, err := m.run.Run("ubus", "call", "service", "signal", `{"name":"sui-copilot","signal":15}`); err != nil {
+		return fmt.Errorf("request service respawn: %w", err)
+	}
+	return nil
+}
+
 func (m *procdManager) Status() (string, error) {
 	output, err := m.run.Run(procdScriptPath, "status")
 	return output, err

@@ -24,10 +24,10 @@ commands:
   status      查看服务状态
 
 install flags:
-  --config path    配置文件路径（默认 SUI_COPILOT_CONFIG 或与可执行文件同目录）
-  --addr host:port 覆盖监听地址（仅显式指定时写入服务定义）
-  --data-dir path  覆盖数据目录（仅显式指定时写入服务定义）
-  -h, --help       显示帮助并退出（适用于所有 service 子命令）
+  -c, --config path     配置文件路径（默认 SUI_COPILOT_CONFIG 或与可执行文件同目录）
+  -a, --addr host:port  覆盖监听地址（仅显式指定时写入服务定义）
+  -d, --data-dir path   覆盖数据目录（仅显式指定时写入服务定义）
+  -h, --help            显示帮助并退出（适用于所有 service 子命令）
 
 支持 OpenWrt（procd）和 systemd；其他系统暂不支持。
 `
@@ -43,9 +43,12 @@ func runService(args []string) error {
 	case "-h", "--help", "help":
 		fmt.Fprint(os.Stdout, serviceUsage)
 		return nil
+	case "install", "uninstall", "start", "stop", "restart", "status":
+	default:
+		return fmt.Errorf("service: unknown command %q", command)
 	}
 
-	configPath, explicit, err := resolveConfigPathForSubcommand(rest)
+	configPath, explicit, err := resolveConfigPathForSubcommand(rest, command == "install")
 	if err != nil {
 		return err
 	}
@@ -178,13 +181,18 @@ type explicitFlags struct {
 
 // resolveConfigPathForSubcommand parses the flags accepted by service
 // management subcommands and reports which ones were set explicitly.
-func resolveConfigPathForSubcommand(args []string) (string, *explicitFlags, error) {
+func resolveConfigPathForSubcommand(args []string, install bool) (string, *explicitFlags, error) {
 	flags := flag.NewFlagSet("service", flag.ContinueOnError)
 	flags.Usage = func() { fmt.Fprint(flags.Output(), serviceUsage) }
 	explicit := &explicitFlags{}
-	flags.StringVar(&explicit.configPath, "config", "", "configuration file")
-	flags.StringVar(&explicit.addr, "addr", "", "listen address")
-	flags.StringVar(&explicit.dataDir, "data-dir", "", "data directory")
+	if install {
+		flags.StringVar(&explicit.configPath, "config", "", "configuration file")
+		flags.StringVar(&explicit.addr, "addr", "", "listen address")
+		flags.StringVar(&explicit.dataDir, "data-dir", "", "data directory")
+		flags.StringVar(&explicit.configPath, "c", "", "configuration file")
+		flags.StringVar(&explicit.addr, "a", "", "listen address")
+		flags.StringVar(&explicit.dataDir, "d", "", "data directory")
+	}
 	if err := parseFlags(flags, args); err != nil {
 		return "", nil, err
 	}

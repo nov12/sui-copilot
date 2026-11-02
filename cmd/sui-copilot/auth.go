@@ -23,9 +23,9 @@ commands:
   login              登录随手记并加密保存会话
 
 login flags:
-  --config path      TOML 配置文件（默认 SUI_COPILOT_CONFIG 或可执行文件同目录的 sui-copilot.toml）
-  --data-dir path    覆盖数据目录（相对路径按配置文件目录解析）
-  -h, --help         显示帮助并退出
+  -c, --config path    TOML 配置文件（默认 SUI_COPILOT_CONFIG 或可执行文件同目录的 sui-copilot.toml）
+  -d, --data-dir path  覆盖数据目录（相对路径按配置文件目录解析）
+  -h, --help           显示帮助并退出
 `
 
 func runAuth(args []string) error {
@@ -47,6 +47,8 @@ func runAuth(args []string) error {
 	flags.Usage = func() { fmt.Fprint(flags.Output(), authUsage) }
 	configPathFlag := flags.String("config", envOr("SUI_COPILOT_CONFIG", defaultConfigPath()), "TOML configuration file")
 	dataDirFlag := flags.String("data-dir", "", "data directory override")
+	flags.StringVar(configPathFlag, "c", *configPathFlag, "TOML configuration file")
+	flags.StringVar(dataDirFlag, "d", *dataDirFlag, "data directory override")
 	if err := parseFlags(flags, args[1:]); err != nil {
 		return err
 	}

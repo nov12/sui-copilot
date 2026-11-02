@@ -99,6 +99,13 @@ func (m *systemdManager) Restart() error {
 	return nil
 }
 
+func (m *systemdManager) RequestRestart() error {
+	if _, err := m.run.Run("systemctl", "--no-block", "restart", systemdUnitName); err != nil {
+		return fmt.Errorf("request service restart: %w", err)
+	}
+	return nil
+}
+
 func (m *systemdManager) Status() (string, error) {
 	output, err := m.run.Run("systemctl", "status", systemdUnitName)
 	return output, err
