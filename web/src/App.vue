@@ -26,7 +26,7 @@ const pageMetadataExpanded = ref(false)
 const debugEnabled = ref(false)
 const appVersion = ref('读取中…')
 const updateChecking = ref(false)
-const updateFeedback = ref('')
+const floatingFeedback = ref('')
 const latestUpdateStatus = ref<UpdateStatus | null>(null)
 const availableUpdate = computed(() => {
   const status = latestUpdateStatus.value
@@ -57,7 +57,7 @@ const settingsForm = reactive<Settings>({ sui_book_name: '', cleanup_retention_d
 const secretForm = reactive({ llm_api_key: '' })
 const savedProvider = ref<Settings['llm_provider']>('openrouter')
 let refreshTimer: number | undefined
-let updateFeedbackTimer: number | undefined
+let floatingFeedbackTimer: number | undefined
 let updateStatusTimer: number | undefined
 let refreshInFlight = false
 
@@ -246,7 +246,8 @@ async function refreshAndReconcile() {
   try {
     await refresh()
     if (!entries.value.some(entry => entry.state === 'uncertain')) {
-      message.value = '记录列表已刷新。'
+      message.value = ''
+      showFloatingFeedback('记录列表已刷新。')
       return
     }
     const result = await api.reconcileUncertain()
@@ -305,23 +306,24 @@ async function loadUpdateStatus() {
   }
 }
 
+function showFloatingFeedback(text: string) {
+  window.clearTimeout(floatingFeedbackTimer)
+  floatingFeedback.value = text
+  floatingFeedbackTimer = window.setTimeout(() => { floatingFeedback.value = '' }, 4000)
+}
+
 async function checkUpdate() {
   if (updateChecking.value) return
   updateChecking.value = true
-  updateFeedback.value = ''
-  window.clearTimeout(updateFeedbackTimer)
   try {
     const result = await api.checkUpdate()
     appVersion.value = result.currentVersion
     applyUpdateStatus(result)
-    if (!result.updateAvailable) updateFeedback.value = '已是最新版本'
+    if (!result.updateAvailable) showFloatingFeedback('已是最新版本')
   } catch (error) {
-    updateFeedback.value = error instanceof Error ? error.message : '检查更新失败，请稍后重试'
+    showFloatingFeedback(error instanceof Error ? error.message : '检查更新失败，请稍后重试')
   } finally {
     updateChecking.value = false
-    if (updateFeedback.value) {
-      updateFeedbackTimer = window.setTimeout(() => { updateFeedback.value = '' }, 4000)
-    }
   }
 }
 
@@ -855,7 +857,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopRefreshTimer()
-  window.clearTimeout(updateFeedbackTimer)
+  window.clearTimeout(floatingFeedbackTimer)
   window.clearInterval(updateStatusTimer)
   document.removeEventListener('visibilitychange', loadUpdateStatus)
 })
@@ -863,15 +865,17 @@ onUnmounted(() => {
 
 <template>
   <div class="shell">
+    <Teleport to="body">
+      <div class="floating-feedback" role="status"><Transition name="time-fade"><span v-if="floatingFeedback">{{ floatingFeedback }}</span></Transition></div>
+    </Teleport>
     <header>
       <div class="brand">
         <div class="brand-meta">
           <p class="eyebrow">SUI COPILOT</p>
           <button type="button" class="app-version" :disabled="updateChecking" :aria-busy="updateChecking" :aria-label="`当前版本 ${appVersion}，检查更新`" @click="checkUpdate">
-            <span class="version-label">版本 {{ appVersion }}</span>
+            <span class="version-label">{{ appVersion }}</span>
             <svg v-if="updateChecking" class="version-spinner" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17" /></svg>
           </button>
-          <span class="version-feedback" role="status"><Transition name="time-fade"><span v-if="updateFeedback">{{ updateFeedback }}</span></Transition></span>
         </div>
         <h1>随手记记账助手</h1>
       </div>

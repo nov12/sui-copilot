@@ -33,7 +33,7 @@ func runUpdate(args []string) error {
 	checkOnly := flags.Bool("check", false, "only check for a newer release")
 	wantVersion := flags.String("version", "", "upgrade (or downgrade) to a specific release tag")
 	repo := flags.String("repo", selfupdate.DefaultRepo, "GitHub repository (owner/name)")
-	if err := flags.Parse(args); err != nil {
+	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
 	if flags.NArg() > 0 {

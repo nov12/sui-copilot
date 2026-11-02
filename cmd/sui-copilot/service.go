@@ -185,7 +185,7 @@ func resolveConfigPathForSubcommand(args []string) (string, *explicitFlags, erro
 	flags.StringVar(&explicit.configPath, "config", "", "configuration file")
 	flags.StringVar(&explicit.addr, "addr", "", "listen address")
 	flags.StringVar(&explicit.dataDir, "data-dir", "", "data directory")
-	if err := flags.Parse(args); err != nil {
+	if err := parseFlags(flags, args); err != nil {
 		return "", nil, err
 	}
 	if flags.NArg() > 0 {
