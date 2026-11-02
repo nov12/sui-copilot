@@ -20,42 +20,64 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
 
-      - name: Download all binaries
+      - name: Download all release packages
         uses: actions/download-artifact@v8.0.2
         with:
           pattern: sui-copilot-*
-          path: bin/
+          path: bin/release/
           merge-multiple: true
 
-      - name: Verify all downloads are present
+      - name: Verify all release packages are present
         run: |
           node <<'JS'
           const fs = require('node:fs');
           for (const target of require('./scripts/release-targets.json')) {
-            const name = 'sui-copilot-' + target.replaceAll('/', '-') + (target.startsWith('windows/') ? '.exe' : '');
-            if (!fs.statSync('bin/' + name).size) throw new Error('Empty binary: ' + name);
+            const archive = 'sui-copilot-' + target.replaceAll('/', '-') + (target.startsWith('windows/') ? '.zip' : '.tar.gz');
+            if (!fs.statSync('bin/release/' + archive).size) throw new Error('Empty package: ' + archive);
           }
           JS
 
-      - name: Include sample configuration
-        run: cp sui-copilot.toml.sample bin/
-
       - name: Generate checksums
-        working-directory: bin
-        run: sha256sum sui-copilot-* sui-copilot.toml.sample > SHA256SUMS
+        working-directory: bin/release
+        run: sha256sum sui-copilot-*.tar.gz sui-copilot-*.zip > SHA256SUMS
+
+      - name: Prepare release notes
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          if previous_tag=$(git describe --tags --match 'v[0-9]*' --abbrev=0 "${RELEASE_VERSION}^" 2>/dev/null); then
+            range="$previous_tag..$RELEASE_VERSION"
+            changes_url="$REPOSITORY_URL/compare/$previous_tag...$RELEASE_VERSION"
+          else
+            range="$RELEASE_VERSION"
+            changes_url="$REPOSITORY_URL/commits/$RELEASE_VERSION"
+          fi
+          {
+            printf '## 变更详情\n\n'
+            git log --reverse --no-merges --format='### %s (%h)%n%n%b' "$range"
+            printf '\n## 下载与升级\n\n'
+            printf '%s\n' \
+              '- Linux、macOS、FreeBSD 下载 `.tar.gz`，Windows 下载 `.zip`；先按 `SHA256SUMS` 校验，再解压。' \
+              '- 配置示例随压缩包提供，不要覆盖已有配置或数据。' \
+              '- `v0.2.0` 的旧更新器不支持压缩包，首次跨越此变更需停止服务后手动替换程序，再启动服务；之后可继续使用 `update`。'
+            printf '\n完整变更：%s\n' "$changes_url"
+          } > bin/release-notes.md
 
       - name: Publish release
         uses: softprops/action-gh-release@v3.0.3
         with:
           files: |
-            bin/sui-copilot-*
-            bin/sui-copilot.toml.sample
-            bin/SHA256SUMS
-          generate_release_notes: true
+            bin/release/*.tar.gz
+            bin/release/*.zip
+            bin/release/SHA256SUMS
+          body_path: bin/release-notes.md
           fail_on_unmatched_files: true
