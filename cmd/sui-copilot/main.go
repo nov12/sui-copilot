@@ -42,7 +42,6 @@ flags:
 
 environment:
   SUI_COPILOT_CONFIG  默认配置文件路径；--config 优先，否则使用可执行文件同目录的 sui-copilot.toml
-  GITHUB_TOKEN        update 查询 GitHub Releases 时使用的可选令牌
 `
 
 func main() {
