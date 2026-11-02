@@ -68,6 +68,13 @@ func TestParseUsesProviderSpecificChatCompletionsEndpoint(t *testing.T) {
 					if r.Header.Get("Authorization") != "Bearer test-key" {
 						t.Fatalf("unexpected authorization header: %q", r.Header.Get("Authorization"))
 					}
+					var payload map[string]json.RawMessage
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Fatal(err)
+					}
+					if _, ok := payload["temperature"]; ok {
+						t.Fatal("parse request must omit temperature to use the model default")
+					}
 					body := `{"choices":[{"message":{"content":"{\"type\":\"expense\",\"date\":\"2026-09-10 12:00\",\"amount\":\"35\",\"categoryName\":\"食品\",\"accountName\":\"银行卡\",\"storeName\":\"\",\"projectName\":\"\",\"memberName\":\"\",\"memo\":\"午饭\",\"confidence\":0.9,\"needsConfirmation\":false}"}}]}`
 					return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 				})},

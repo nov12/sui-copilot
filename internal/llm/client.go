@@ -102,7 +102,6 @@ type request struct {
 	Model          string         `json:"model"`
 	Messages       []message      `json:"messages"`
 	ResponseFormat responseFormat `json:"response_format"`
-	Temperature    float64        `json:"temperature"`
 }
 
 type message struct {
@@ -275,7 +274,7 @@ func (c *Client) Parse(ctx context.Context, text string, contextData ParseContex
 		}
 	}
 	system := c.SystemPrompt(contextData)
-	body, err := json.Marshal(request{Model: model, Messages: []message{{Role: "system", Content: system}, {Role: "user", Content: text}}, ResponseFormat: responseFormat{Type: "json_schema", JSONSchema: schema{Name: "accounting_entry", Strict: true, Schema: draftSchema}}, Temperature: 0})
+	body, err := json.Marshal(request{Model: model, Messages: []message{{Role: "system", Content: system}, {Role: "user", Content: text}}, ResponseFormat: responseFormat{Type: "json_schema", JSONSchema: schema{Name: "accounting_entry", Strict: true, Schema: draftSchema}}})
 	if err != nil {
 		return accounting.Draft{}, newParseError(c.Provider, "生成请求失败："+sanitizeDiagnostic(err.Error(), c.APIKey))
 	}

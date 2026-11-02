@@ -94,6 +94,8 @@ sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
 
 模型服务配置位于 TOML 的 `[llm]` 段：`provider` 可选 `openai`、`openrouter`、`custom`。第一版只支持 OpenAI-compatible Chat Completions，不支持 Responses API 或旧的 `/completions` 文本接口。OpenAI 和 OpenRouter 使用内置 Base URL；自定义服务需要填写 Base URL，并提供 `{base_url}/chat/completions`，且最好提供 `{base_url}/models`。三种服务商都必须支持当前使用的 `response_format.type = "json_schema"`。系统不会在服务商之间自动 fallback。旧的 `[openrouter]` 配置仍可读取，网页下次保存时迁移到 `[llm]`。
 
+解析请求省略 `temperature`，使用所选模型的默认采样设置，兼容只接受默认温度的模型。
+
 ## 安全边界
 
 本项目是个人使用项目，仅供个人在本地或可信内网运行：API 还没有管理员登录和 CSRF 层，没有公网所需的安全加固，不应直接暴露到公网。服务默认监听 `127.0.0.1:8080`，如需从其他设备访问，应放在带认证的 HTTPS 反向代理后。真实随手记写入前，仍需要受控验收。
