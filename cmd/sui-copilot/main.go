@@ -31,6 +31,14 @@ commands:
   update              从 GitHub Releases 检查或升级程序
   help [command]      查看帮助（也可使用 <command> -h 或 --help）
 
+flags:
+  --addr host:port    HTTP 监听地址（覆盖配置文件）
+  --config path      TOML 配置文件（默认 SUI_COPILOT_CONFIG 或可执行文件同目录的 sui-copilot.toml）
+  --data-dir path    数据目录（相对路径按配置文件目录解析）
+  --debug            开启仅用于调试的提交预览
+  -v, --version      显示程序版本并退出
+  -h, --help         显示帮助并退出
+
 environment:
   SUI_COPILOT_CONFIG  默认配置文件路径；--config 优先，否则使用可执行文件同目录的 sui-copilot.toml
   GITHUB_TOKEN        update 查询 GitHub Releases 时使用的可选令牌
@@ -64,12 +72,11 @@ func run(args []string) error {
 	debug := flags.Bool("debug", false, "enable debug-only submit preview")
 	configPathFlag := flags.String("config", envOr("SUI_COPILOT_CONFIG", defaultConfigPath()), "TOML configuration file")
 	showVersion := flags.Bool("version", false, "print program version and exit")
+	flags.BoolVar(showVersion, "v", false, "print program version and exit")
 	flags.Usage = func() {
-		fmt.Fprintf(flags.Output(), "sui-copilot %s\n\n%s\nflags:\n", buildinfo.Version, rootUsage)
-		flags.PrintDefaults()
-		fmt.Fprintln(flags.Output(), "  -h, --help\n    \tshow help and exit")
+		fmt.Fprintf(flags.Output(), "sui-copilot %s\n\n%s", buildinfo.Version, rootUsage)
 	}
-	if err := flags.Parse(args); err != nil {
+	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
 	if flags.NArg() > 0 {

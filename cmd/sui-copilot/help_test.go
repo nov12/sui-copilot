@@ -50,7 +50,7 @@ func TestCLIHelp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SUI_COPILOT_CONFIG", configPath)
-	rootTokens := []string{"sui-copilot " + buildinfo.Version, "auth login", "service", "install", "uninstall", "start", "stop", "restart", "status", "update", "-addr", "-config", "-data-dir", "-debug", "-version", "--help", "SUI_COPILOT_CONFIG", "GITHUB_TOKEN"}
+	rootTokens := []string{"sui-copilot " + buildinfo.Version, "auth login", "service", "install", "uninstall", "start", "stop", "restart", "status", "update", "--addr", "--config", "--data-dir", "--debug", "-v, --version", "-h, --help", "SUI_COPILOT_CONFIG", "GITHUB_TOKEN"}
 	authTokens := []string{"auth login", "--config", "--data-dir", "--help"}
 	serviceTokens := []string{"install", "uninstall", "start", "stop", "restart", "status", "--config", "--addr", "--data-dir", "--help"}
 	updateTokens := []string{"--check", "--version", "--repo", "--help"}
@@ -88,6 +88,12 @@ func TestCLIHelp(t *testing.T) {
 					t.Errorf("help is missing %q:\n%s", token, output)
 				}
 			}
+			for _, line := range strings.Split(output, "\n") {
+				fields := strings.Fields(line)
+				if len(fields) > 0 && strings.HasPrefix(fields[0], "-") && !strings.HasPrefix(fields[0], "--") && fields[0] != "-h," && fields[0] != "-v," {
+					t.Errorf("help uses a nonstandard flag: %s", line)
+				}
+			}
 		})
 	}
 	files, err := os.ReadDir(dir)
@@ -105,7 +111,7 @@ func TestCLIVersionIgnoresInvalidConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SUI_COPILOT_CONFIG", configPath)
-	for _, args := range [][]string{{"--version"}, {"-version"}, {"--config", configPath, "--version"}} {
+	for _, args := range [][]string{{"--version"}, {"-v"}, {"--config", configPath, "--version"}, {"--config=" + configPath, "-v"}} {
 		output, err := runCLIProcess(t, args...)
 		if err != nil || output != "sui-copilot "+buildinfo.Version+"\n" {
 			t.Fatalf("version args=%q: err=%v output=%q", args, err, output)
@@ -117,9 +123,25 @@ func TestCLIInvalidArgumentsFail(t *testing.T) {
 	for _, args := range [][]string{
 		{"unknown-command"},
 		{"--unknown-flag"},
+		{"-version"},
+		{"--v"},
+		{"-help"},
+		{"--h"},
+		{"-config", "unused.toml", "-v"},
+		{"-addr=127.0.0.1:8080", "-v"},
+		{"-data-dir", "unused", "-v"},
+		{"-debug", "-v"},
 		{"auth", "login", "unexpected"},
+		{"auth", "login", "-config", "unused.toml"},
+		{"auth", "login", "-data-dir", "unused"},
 		{"service", "install", "--unknown-flag"},
+		{"service", "install", "-config", "unused.toml"},
+		{"service", "install", "-addr", "127.0.0.1:8080"},
+		{"service", "install", "-data-dir", "unused"},
 		{"update", "unexpected"},
+		{"update", "-check"},
+		{"update", "-version", "v0.2.3"},
+		{"update", "-repo", "owner/name"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			output, err := runCLIProcess(t, args...)
