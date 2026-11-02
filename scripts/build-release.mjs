@@ -18,10 +18,6 @@ if (!existsSync('internal/httpapi/static/dist/index.html') || !existsSync('inter
   console.error('Frontend assets missing; run task web:embed before building release binaries')
   process.exit(1)
 }
-if (!existsSync('sui-copilot.toml.sample')) {
-  console.error('Sample configuration missing: sui-copilot.toml.sample')
-  process.exit(1)
-}
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: 'inherit', ...options })
@@ -56,9 +52,9 @@ for (const target of buildTargets) {
   const archive = base + (goos === 'windows' ? '.zip' : '.tar.gz')
   const archivePath = `bin/release/${archive}`
   if (goos === 'windows') {
-    run('zip', ['-q', '-j', archivePath, output, 'sui-copilot.toml.sample'])
+    run('zip', ['-q', '-j', archivePath, output])
   } else {
-    run('tar', ['-czf', resolve(archivePath), '-C', resolve('bin'), binary, '-C', process.cwd(), 'sui-copilot.toml.sample'])
+    run('tar', ['-czf', resolve(archivePath), '-C', resolve('bin'), binary])
   }
   const digest = createHash('sha256').update(readFileSync(archivePath)).digest('hex')
   checksums.push(`${digest}  ${archive}`)
