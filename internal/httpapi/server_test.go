@@ -667,7 +667,7 @@ func TestSubmitPreviewIsDebugOnlyAndUsesResolvedIDs(t *testing.T) {
 	}
 }
 
-func TestExecuteSubmitPreviewReturnsUpstreamFailureBody(t *testing.T) {
+func TestExecuteSubmitPreviewChecksSessionAndBookBeforeSendingEditedPayload(t *testing.T) {
 	db, err := store.Open(t.TempDir() + "/test.db")
 	if err != nil {
 		t.Fatal(err)
@@ -694,7 +694,12 @@ func TestExecuteSubmitPreviewReturnsUpstreamFailureBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := NewServerWithConfigPathAndDebug(db, slog.Default(), runtimeConfig, "", true)
+	bookID := "1"
+	writes := 0
 	server.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet && r.URL.Path == "/report_index.do" {
+			return okJSONResponse(r, `<li data-bookId="`+bookID+`" class="current">自己账本</li>`)
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/tally/payout.rmi" {
 			t.Fatalf("unexpected debug submit request: %s %s", r.Method, r.URL.String())
 		}
@@ -702,21 +707,44 @@ func TestExecuteSubmitPreviewReturnsUpstreamFailureBody(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(body), "category=101") || !strings.Contains(string(body), "account=201") {
+		writes++
+		if !strings.Contains(string(body), "category=101") || !strings.Contains(string(body), "account=201") || !strings.Contains(string(body), "memo=edited") {
 			t.Fatalf("debug submit did not send edited payload: %s", body)
 		}
 		return &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request", Body: io.NopCloser(strings.NewReader(`{"id":-999,"errorInfo":"参数错误"}`)), Header: make(http.Header), Request: r}, nil
 	})}
-	preview := sui.RequestPreview{Method: http.MethodPost, URL: "https://sui.example/tally/payout.rmi", Headers: map[string]string{"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}, Payload: "category=101&account=201&price=79.1"}
-	body, err := json.Marshal(preview)
-	if err != nil {
-		t.Fatal(err)
+	path := "/api/v1/entries/" + strconv.FormatInt(entry.ID, 10) + "/submit-preview"
+	generated := httptest.NewRecorder()
+	server.Handler().ServeHTTP(generated, httptest.NewRequest(http.MethodPost, path, nil))
+	var preview debugSubmitPreview
+	if generated.Code != http.StatusOK || json.Unmarshal(generated.Body.Bytes(), &preview) != nil || preview.ContextID == "" {
+		t.Fatalf("invalid preview: %d %s", generated.Code, generated.Body.String())
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/entries/"+strconv.FormatInt(entry.ID, 10)+"/submit-preview/execute", strings.NewReader(string(body)))
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"statusCode":400`) || !strings.Contains(response.Body.String(), "参数错误") {
-		t.Fatalf("upstream failure body was not returned: %d body=%s", response.Code, response.Body.String())
+	preview.Payload += "&memo=edited"
+	execute := func(s *Server, expectedStatus int, fragment string) {
+		t.Helper()
+		body, err := json.Marshal(preview)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		s.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, path+"/execute", strings.NewReader(string(body))))
+		if response.Code != expectedStatus || !strings.Contains(response.Body.String(), fragment) {
+			t.Fatalf("unexpected execute response: %d %s", response.Code, response.Body.String())
+		}
+	}
+	bookID = "2" // Same name, different upstream book.
+	execute(server, http.StatusConflict, "stale_preview")
+	bookID = "1"
+	restarted := NewServerWithConfigPathAndDebug(db, slog.Default(), runtimeConfig, "", true)
+	restarted.httpClient = server.httpClient
+	execute(restarted, http.StatusConflict, "stale_preview")
+	if writes != 0 {
+		t.Fatal("sent a stale preview upstream")
+	}
+	execute(server, http.StatusOK, "参数错误")
+	if writes != 1 {
+		t.Fatalf("got %d writes, want one", writes)
 	}
 }
 

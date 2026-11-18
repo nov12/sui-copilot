@@ -4,7 +4,6 @@ go 1.27
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	golang.org/x/term v0.42.0
 	modernc.org/sqlite v1.52.0
 )
 

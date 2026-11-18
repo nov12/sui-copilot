@@ -535,6 +535,33 @@ func (db *DB) GetSetting(ctx context.Context, key string) (string, error) {
 	return value, err
 }
 
+// PrepareSuiLogin discards the previous book list and keeps category data only
+// when the new session has verified the book used by the latest snapshot.
+// Run this before installing the session: even a crash between stores must
+// leave readers with either matching metadata or a request to sync again.
+func (db *DB) PrepareSuiLogin(ctx context.Context, verifiedBookID string) (bool, error) {
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var latestBookID string
+	err = tx.QueryRowContext(ctx, `SELECT book_id FROM metadata_snapshots ORDER BY id DESC LIMIT 1`).Scan(&latestBookID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	ready := verifiedBookID != "" && verifiedBookID == latestBookID
+	if !ready {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_snapshots`); err != nil {
+			return false, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sui_book_catalog`); err != nil {
+		return false, err
+	}
+	return ready, tx.Commit()
+}
+
 func (db *DB) SaveMetadata(ctx context.Context, bookID, payload string) error {
 	_, err := db.sql.ExecContext(ctx, `INSERT INTO metadata_snapshots(book_id, payload_json, fetched_at) VALUES(?,?,?)`, bookID, payload, time.Now().UTC().Format(time.RFC3339Nano))
 	return err

@@ -18,6 +18,7 @@ import (
 
 var ErrSessionExpired = errors.New("sui session expired")
 var ErrBookMismatch = errors.New("sui current book does not match configured book name")
+var ErrBookMetadataMismatch = errors.New("sui cached metadata does not match the current book")
 var ErrBookNameNotConfigured = errors.New("sui book name is not configured")
 var ErrBookNotFound = errors.New("sui configured book was not found")
 var ErrBookNameAmbiguous = errors.New("sui configured book name is ambiguous")
@@ -72,6 +73,7 @@ type Metadata struct {
 }
 
 type WriteInput struct {
+	BookID     string
 	Type       string
 	CategoryID string
 	StoreID    string
@@ -265,6 +267,19 @@ func (c *Client) CheckBook(ctx context.Context) (Metadata, error) {
 	return metadata, nil
 }
 
+func (c *Client) checkBookID(ctx context.Context, bookID string) error {
+	metadata, err := c.CheckBook(ctx)
+	if err != nil {
+		return err
+	}
+	// Different accounts may have a book with the same name. Never use
+	// category or account IDs from a snapshot of a different book.
+	if metadata.CurrentBook.ID != bookID {
+		return ErrBookMetadataMismatch
+	}
+	return nil
+}
+
 func (c *Client) ListBooks(ctx context.Context) (Metadata, error) {
 	data, err := c.Get(ctx, "/report_index.do", nil)
 	if err != nil {
@@ -455,7 +470,7 @@ func (c *Client) Write(ctx context.Context, input WriteInput) (WriteResult, erro
 	if input.Type != "expense" && input.Type != "income" {
 		return WriteResult{}, errors.New("unsupported transaction type")
 	}
-	if _, err := c.CheckBook(ctx); err != nil {
+	if err := c.checkBookID(ctx, input.BookID); err != nil {
 		return WriteResult{}, err
 	}
 	path, form := writeRequest(input)
@@ -628,6 +643,9 @@ func (c *Client) ExecuteRequestPreview(ctx context.Context, preview RequestPrevi
 	if err != nil {
 		return RequestResult{}, err
 	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.Request.URL.Hostname() == "login.sui.com" || bytesLooksLikeLogin(body) {
+		return RequestResult{}, ErrSessionExpired
+	}
 	headers := make(map[string]string)
 	for name, values := range resp.Header {
 		if strings.EqualFold(name, "Set-Cookie") || strings.EqualFold(name, "Cookie") || strings.EqualFold(name, "Authorization") {
@@ -666,8 +684,8 @@ func writeRequest(input WriteInput) (string, url.Values) {
 
 // List restores the session and verifies the target book before the read-only
 // transaction query, just as Write does before a create request.
-func (c *Client) List(ctx context.Context, beginDate, endDate string) ([]Transaction, error) {
-	if _, err := c.CheckBook(ctx); err != nil {
+func (c *Client) List(ctx context.Context, bookID, beginDate, endDate string) ([]Transaction, error) {
+	if err := c.checkBookID(ctx, bookID); err != nil {
 		return nil, err
 	}
 	data, err := c.Get(ctx, "/tally/new.rmi", url.Values{"opt": {"list2"}, "beginDate": {beginDate}, "endDate": {endDate}, "cids": {"0"}, "bids": {"0"}, "sids": {"0"}, "pids": {"0"}, "memids": {"0"}, "order": {""}, "isDesc": {"0"}, "page": {"1"}, "note": {""}, "mids": {"0"}})

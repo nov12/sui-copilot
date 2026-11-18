@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -38,10 +40,9 @@ type Server struct {
 	debug      bool
 	httpClient *http.Client
 
-	suiSessionMu      sync.Mutex
-	suiSession        *sui.Session
-	suiSessionPath    string
-	suiSessionKeyPath string
+	suiMu       sync.Mutex
+	suiSession  *sui.Session
+	previewSalt string // Rotated on restart and successful login.
 
 	processingMu      sync.Mutex
 	processing        map[int64]struct{}
@@ -50,7 +51,6 @@ type Server struct {
 	processingRunning bool
 	reconcileMu       sync.Mutex
 	entryMu           sync.Mutex
-	suiWriteMu        sync.Mutex
 	updateMu          sync.RWMutex
 	lastUpdate        updateStatus
 	updateInstaller   func(string) error
@@ -106,6 +106,7 @@ func newServer(db *store.DB, logger *slog.Logger, runtimeConfig config.Config, c
 		config:           runtimeConfig,
 		configPath:       configPath,
 		debug:            debug,
+		previewSalt:      rand.Text(),
 		httpClient:       &http.Client{Timeout: 120 * time.Second},
 		processing:       make(map[int64]struct{}),
 		processingCancel: make(map[int64]context.CancelFunc),
@@ -149,6 +150,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/openrouter/prompt", s.openRouterPrompt)
 	s.mux.HandleFunc("GET /api/v1/debug", s.debugStatus)
 	s.mux.HandleFunc("GET /api/v1/models", s.openRouterModels)
+	s.mux.HandleFunc("GET /api/v1/sui/session", s.checkSuiSession)
+	s.mux.HandleFunc("POST /api/v1/sui/session", s.loginSui)
 	s.mux.HandleFunc("GET /api/v1/sui/books", s.suiBooks)
 	s.mux.HandleFunc("POST /api/v1/sui/books/sync", s.syncSuiBooks)
 	s.mux.HandleFunc("POST /api/v1/sui/sync", s.syncSuiBook)
@@ -715,6 +718,17 @@ func (s *Server) interruptEntry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"entry": updated})
 }
 
+type debugSubmitPreview struct {
+	sui.RequestPreview
+	ContextID string `json:"contextId"`
+}
+
+// Bind editable previews to the session and verified book without trusting a
+// client-supplied book ID or keeping a registry of outstanding previews.
+func (s *Server) previewContextID(bookID string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(s.previewSalt+":"+bookID)))
+}
+
 func (s *Server) submitPreview(w http.ResponseWriter, r *http.Request) {
 	if !s.debug {
 		http.NotFound(w, r)
@@ -756,13 +770,17 @@ func (s *Server) submitPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_draft", err.Error())
 		return
 	}
+	s.suiMu.Lock()
+	defer s.suiMu.Unlock()
 	input, err := s.resolveWriteInput(r.Context(), draft)
 	if err != nil {
 		s.writeSubmitError(w, err)
 		return
 	}
-	preview := s.suiClient().WritePreview(input)
-	writeJSON(w, http.StatusOK, preview)
+	writeJSON(w, http.StatusOK, debugSubmitPreview{
+		RequestPreview: s.suiClient().WritePreview(input),
+		ContextID:      s.previewContextID(input.BookID),
+	})
 }
 
 func (s *Server) executeSubmitPreview(w http.ResponseWriter, r *http.Request) {
@@ -788,7 +806,7 @@ func (s *Server) executeSubmitPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "invalid_state", "当前状态不能直接提交")
 		return
 	}
-	var preview sui.RequestPreview
+	var preview debugSubmitPreview
 	if err := decodeJSON(r, &preview); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "提交预览格式不正确")
 		return
@@ -806,12 +824,34 @@ func (s *Server) executeSubmitPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_draft", err.Error())
 		return
 	}
-	if err := validateDebugPreview(s.runtimeConfig().Sui.BaseURL, draft.Type, preview); err != nil {
+	if err := validateDebugPreview(s.runtimeConfig().Sui.BaseURL, draft.Type, preview.RequestPreview); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_preview", err.Error())
 		return
 	}
-	result, err := s.suiClient().ExecuteRequestPreview(r.Context(), preview)
+	s.suiMu.Lock()
+	defer s.suiMu.Unlock()
+	if preview.ContextID == "" {
+		writeError(w, http.StatusConflict, "stale_preview", "随手记会话已变化，请重新生成提交预览")
+		return
+	}
+	client := s.suiClient()
+	books, err := client.ListBooks(r.Context())
 	if err != nil {
+		status, code, message := suiError(err)
+		writeError(w, status, code, message)
+		return
+	}
+	if preview.ContextID != s.previewContextID(books.CurrentBook.ID) || sui.ValidateBook(books, client.BookName) != nil {
+		writeError(w, http.StatusConflict, "stale_preview", "会话或目标账簿已变化，请确认当前账簿并重新生成提交预览")
+		return
+	}
+	result, err := client.ExecuteRequestPreview(r.Context(), preview.RequestPreview)
+	if err != nil {
+		if isSuiSessionError(err) {
+			status, code, message := suiError(err)
+			writeError(w, status, code, message)
+			return
+		}
 		writeError(w, http.StatusBadGateway, "submit_failed", "提交请求失败，未收到随手记返回内容")
 		return
 	}
@@ -1005,8 +1045,8 @@ func (s *Server) confirmEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) submitResolvedEntry(ctx context.Context, entry store.Entry, input sui.WriteInput) (store.Entry, sui.WriteResult, error) {
-	s.suiWriteMu.Lock()
-	defer s.suiWriteMu.Unlock()
+	s.suiMu.Lock()
+	defer s.suiMu.Unlock()
 
 	committing, err := s.db.SetState(ctx, entry.ID, entry.State, accounting.StateCommitting, "sui_commit_started", "正在提交到随手记")
 	if err != nil {
@@ -1038,9 +1078,8 @@ func (s *Server) submitResolvedEntry(ctx context.Context, entry store.Entry, inp
 		nextState = accounting.StateUncertain
 		code = "sui_uncertain"
 		message = "提交结果不确定，请先核对随手记流水，不要自动重试"
-	} else if errors.Is(writeErr, sui.ErrSessionExpired) {
-		code = "sui_session_expired"
-		message = "随手记会话已失效，请重新登录后人工处理"
+	} else if isSuiSessionError(writeErr) || errors.Is(writeErr, sui.ErrBookMetadataMismatch) {
+		_, code, message = suiError(writeErr)
 	}
 	updated, err := s.db.SetState(saveCtx, committing.ID, accounting.StateCommitting, nextState, code, message)
 	if err != nil {
@@ -1201,6 +1240,7 @@ func (s *Server) resolveEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	snapshot, err := s.db.LatestMetadata(r.Context())
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, 200, map[string]any{"status": "not_configured", "metadata": nil})

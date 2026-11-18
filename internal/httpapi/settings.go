@@ -334,40 +334,6 @@ func (s *Server) openRouterPrompt(w http.ResponseWriter, r *http.Request) {
 	s.llmPrompt(w, r)
 }
 
-func (s *Server) suiClient() *sui.Client {
-	cfg := s.runtimeConfig()
-	client := &sui.Client{BaseURL: cfg.Sui.BaseURL, BookName: cfg.Sui.BookName, HTTP: s.httpClient}
-	if cfg.Sui.SessionFile != "" {
-		session, err := s.loadSuiSession(cfg.Sui.SessionFile, cfg.Sui.SessionKeyFile)
-		if err == nil {
-			client.Jar = session.Jar
-			client.Session = session
-		} else {
-			client.SessionErr = err
-		}
-	}
-	return client
-}
-
-func (s *Server) loadSuiSession(sessionPath, keyPath string) (*sui.Session, error) {
-	s.suiSessionMu.Lock()
-	defer s.suiSessionMu.Unlock()
-	if s.suiSession != nil && s.suiSessionPath == sessionPath && s.suiSessionKeyPath == keyPath {
-		return s.suiSession, nil
-	}
-	session, err := sui.LoadSession(sessionPath, keyPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, sui.ErrSessionNotConfigured
-	}
-	if err != nil {
-		return nil, sui.ErrSessionStoreCorrupted
-	}
-	s.suiSession = session
-	s.suiSessionPath = sessionPath
-	s.suiSessionKeyPath = keyPath
-	return session, nil
-}
-
 func (s *Server) suiBooks(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := s.db.LatestBookCatalog(r.Context())
 	if errors.Is(err, store.ErrNotFound) {
@@ -392,19 +358,16 @@ func (s *Server) suiBooks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) syncSuiBooks(w http.ResponseWriter, r *http.Request) {
+	s.suiMu.Lock()
+	defer s.suiMu.Unlock()
 	metadata, err := s.suiClient().ListBooks(r.Context())
 	if err != nil {
 		status, code, message := suiError(err)
 		writeError(w, status, code, message)
 		return
 	}
-	payload, err := json.Marshal(metadata.Books)
+	updatedAt, err := s.saveSuiBookCatalog(r.Context(), metadata)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "metadata_error", "保存账簿资料失败")
-		return
-	}
-	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	if err := s.db.SaveBookCatalog(r.Context(), string(payload), metadata.CurrentBook.Name, updatedAt); err != nil {
 		writeError(w, http.StatusInternalServerError, "store_error", "保存账簿资料失败")
 		return
 	}
@@ -416,7 +379,21 @@ func (s *Server) syncSuiBooks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) saveSuiBookCatalog(ctx context.Context, metadata sui.Metadata) (string, error) {
+	payload, err := json.Marshal(metadata.Books)
+	if err != nil {
+		return "", err
+	}
+	updatedAt := metadata.FetchedAt.Format(time.RFC3339Nano)
+	if err := s.db.SaveBookCatalog(ctx, string(payload), metadata.CurrentBook.Name, updatedAt); err != nil {
+		return "", err
+	}
+	return updatedAt, nil
+}
+
 func (s *Server) checkSuiConnection(w http.ResponseWriter, r *http.Request) {
+	s.suiMu.Lock()
+	defer s.suiMu.Unlock()
 	client := s.suiClient()
 	metadata, err := client.ListBooks(r.Context())
 	if err != nil {
@@ -445,6 +422,8 @@ func (s *Server) checkSuiConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) refreshSuiMetadata(w http.ResponseWriter, r *http.Request) {
+	s.suiMu.Lock()
+	defer s.suiMu.Unlock()
 	metadata, err := s.syncAndSaveMetadata(r.Context(), s.suiClient())
 	if err != nil {
 		status, code, message := suiError(err)
@@ -462,6 +441,8 @@ func (s *Server) syncSuiBook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", "请求格式不正确")
 		return
 	}
+	s.suiMu.Lock()
+	defer s.suiMu.Unlock()
 	client := s.suiClient()
 	if strings.TrimSpace(request.BookName) != "" {
 		client.BookName = strings.TrimSpace(request.BookName)
@@ -528,6 +509,7 @@ func (s *Server) resolveWriteInput(ctx context.Context, draft accounting.Draft) 
 		return sui.WriteInput{}, errAccountNotFound
 	}
 	return sui.WriteInput{
+		BookID:     metadata.CurrentBook.ID,
 		Type:       draft.Type,
 		CategoryID: category.ID,
 		StoreID:    metadataItemID(metadata.Stores, draft.StoreName),
@@ -573,14 +555,20 @@ func publicBooks(books []sui.Book) []map[string]any {
 	return result
 }
 
+func isSuiSessionError(err error) bool {
+	return errors.Is(err, sui.ErrSessionExpired) || errors.Is(err, sui.ErrSessionNotConfigured) || errors.Is(err, sui.ErrSessionStoreCorrupted)
+}
+
 func suiError(err error) (int, string, string) {
 	switch {
 	case errors.Is(err, sui.ErrSessionExpired):
-		return http.StatusUnauthorized, "sui_session_expired", "随手记会话已失效，请重新执行 sui-copilot auth login"
+		return http.StatusUnauthorized, "sui_session_expired", "随手记会话已失效，请在网页重新登录"
 	case errors.Is(err, sui.ErrSessionNotConfigured):
-		return http.StatusBadRequest, "sui_session_not_configured", "请先执行 sui-copilot auth login"
+		return http.StatusBadRequest, "sui_session_not_configured", "请在网页登录随手记"
 	case errors.Is(err, sui.ErrSessionStoreCorrupted):
-		return http.StatusBadRequest, "sui_session_corrupted", "随手记登录会话不可用，请重新执行 sui-copilot auth login"
+		return http.StatusBadRequest, "sui_session_corrupted", "随手记登录会话不可用，请在网页重新登录"
+	case errors.Is(err, sui.ErrBookMetadataMismatch):
+		return http.StatusUnprocessableEntity, "category_metadata_book_mismatch", "分类资料不属于当前目标账簿，请在配置中重新同步分类"
 	case errors.Is(err, sui.ErrBookNameNotConfigured):
 		return http.StatusBadRequest, "book_name_not_configured", "请先设置目标账簿名称"
 	case errors.Is(err, sui.ErrBookNotFound):

@@ -81,30 +81,23 @@ task build
 | 命令 | 参数 |
 | --- | --- |
 | 启动服务 | `-a` / `--addr`、`-c` / `--config`、`-d` / `--data-dir`、`-D` / `--debug`、`-v` / `--version` |
-| `auth login` | `-c` / `--config`、`-d` / `--data-dir` |
 | `service install` | `-c` / `--config`、`-a` / `--addr`、`-d` / `--data-dir` |
 | `update` | `-c` / `--check`、`-v` / `--version vX.Y.Z`、`-r` / `--repo owner/name` |
 | 所有命令 | `-h` / `--help` |
 
-注意：根命令的 `-v` 显示版本并退出，`update -v vX.Y.Z` 指定目标版本；`-d` 是数据目录，`-D` 是调试开关。短选项需分开写，不合并。拒绝 `-version`、`-config`、`--v`、`--c` 等不规范写法。`service` 的安装参数仅适用于 `install`，其他服务管理子命令不接受这些无效参数。生成的服务定义始终保存规范的 `--name=value` 长选项。子命令帮助示例：`auth login -h`、`service -h`、`service install -h`、`update -h`。帮助和根命令版本查询不会读取配置或启动服务。
+注意：根命令的 `-v` 显示版本并退出，`update -v vX.Y.Z` 指定目标版本；`-d` 是数据目录，`-D` 是调试开关。短选项需分开写，不合并。拒绝 `-version`、`-config`、`--v`、`--c` 等不规范写法。`service` 的安装参数仅适用于 `install`，其他服务管理子命令不接受这些无效参数。生成的服务定义始终保存规范的 `--name=value` 长选项。可用 `service -h`、`service install -h` 和 `update -h` 查看子命令帮助。帮助和根命令版本查询不会读取配置或启动服务。
 
-准备配置并登录随手记（把 `<os>-<arch>` 换成实际平台，例如 `linux-amd64`）：
+首次安装时可复制示例配置，然后启动服务。把 `<os>-<arch>` 换成实际平台，例如 `linux-amd64`。
 
 ```sh
 mkdir -p bin
 cp sui-copilot.toml.sample bin/sui-copilot.toml
-./bin/sui-copilot-<os>-<arch> auth login --config ./bin/sui-copilot.toml
-```
-
-命令会提示输入随手记账号和密码；密码不会保存，登录状态加密存放在数据目录。
-
-启动服务：
-
-```sh
 ./bin/sui-copilot-<os>-<arch> --config ./bin/sui-copilot.toml
 ```
 
-然后浏览器打开 `http://127.0.0.1:8080`，就是上面截图里的界面。第一次使用建议先在「配置」里点一次「同步随手记账本列表」和「同步当前账簿分类」，后台解析要用账本的分类资料。
+1. 在浏览器打开 `http://127.0.0.1:8080`，点击「登录随手记」并输入随手记账号和密码。
+2. 登录后在「配置」里选择目标账簿，点击「同步当前账簿分类」，并填写模型服务配置。
+3. 会话失效时，点击网页上的「重新登录」即可恢复，服务即时使用新会话。密码只用于本次登录，会话加密保存在数据目录。
 
 日常配置、手机快捷指令、接口细节见[运行文档](docs/operations.md)。
 
@@ -143,7 +136,7 @@ sudo ./sui-copilot-<os>-<arch> update
 
 ## 安全边界
 
-本项目是个人使用项目，不是多用户服务：API 没有管理员登录和 CSRF 层，也没有公网所需的安全加固。请只在个人设备或可信内网运行，服务默认只监听 `127.0.0.1:8080`，请勿把端口直接暴露到公网；如需从其他设备访问，应放在带认证的 HTTPS 反向代理后。真实随手记写入前需要受控验收。
+网页登录连接的是随手记账号。sui-copilot 按个人单用户场景设计，默认只监听 `127.0.0.1:8080`。请只在个人设备或可信内网运行。从其他设备访问时，请使用带认证且保留原始 `Host` 的 HTTPS 反向代理。请勿把端口直接暴露到公网。真实随手记写入前需要受控验收。
 
 ## 生成方式声明
 

@@ -24,10 +24,9 @@ const defaultConfigName = "sui-copilot.toml"
 const rootUsage = `usage: sui-copilot [flags]
        sui-copilot <command> [flags]
 
-不带子命令时启动 HTTP 服务和网页。
+不带子命令时启动 HTTP 服务。打开网页即可登录随手记。默认地址为 http://127.0.0.1:8080。
 
 commands:
-  auth login          登录随手记并加密保存会话
   service <command>   管理系统服务：install、uninstall、start、stop、restart、status
   update              从 GitHub Releases 检查或升级程序
   help [command]      查看帮助（也可使用 <command> -h 或 --help）
@@ -42,7 +41,6 @@ flags:
 
 environment:
   SUI_COPILOT_CONFIG  默认配置文件路径；--config 优先，否则使用可执行文件同目录的 sui-copilot.toml
-  GITHUB_TOKEN        update 查询 GitHub Releases 时使用的可选令牌
 `
 
 func main() {
@@ -55,8 +53,6 @@ func main() {
 func run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
-		case "auth":
-			return runAuth(args[1:])
 		case "service":
 			return runService(args[1:])
 		case "update":

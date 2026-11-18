@@ -59,7 +59,6 @@ task dev --watch
 grep '  sui-copilot-linux-amd64.tar.gz$' SHA256SUMS | sha256sum -c -
 tar -xzf sui-copilot-linux-amd64.tar.gz
 cp sui-copilot.toml.sample sui-copilot.toml
-./sui-copilot-linux-amd64 auth login --config ./sui-copilot.toml
 ./sui-copilot-linux-amd64 --config ./sui-copilot.toml
 ```
 
@@ -71,9 +70,10 @@ Get-Content .\SHA256SUMS | Select-String '  sui-copilot-windows-amd64.zip$'
 Expand-Archive .\sui-copilot-windows-amd64.zip -DestinationPath .\sui-copilot
 Set-Location .\sui-copilot
 Copy-Item sui-copilot.toml.sample sui-copilot.toml
-.\sui-copilot-windows-amd64.exe auth login --config .\sui-copilot.toml
 .\sui-copilot-windows-amd64.exe --config .\sui-copilot.toml
 ```
+
+启动后，在浏览器打开 `http://127.0.0.1:8080` 登录随手记。首次登录和会话失效后的重新登录都在网页完成。
 
 ## 版本与发布
 

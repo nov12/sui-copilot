@@ -79,6 +79,20 @@ export interface SyncedMetadata {
   fetchedAt: string
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly code?: string) {
+    super(message)
+  }
+}
+
+export interface SuiLoginResult {
+  status: 'authenticated'
+  currentBookName: string
+  books: BookOption[]
+  updatedAt: string
+  metadataReady: boolean
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) }, ...init })
   const raw = await response.text()
@@ -86,7 +100,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try { body = raw ? JSON.parse(raw) : null } catch { /* Keep the HTTP status for non-JSON server responses. */ }
   if (!response.ok) {
     const message = body && typeof body === 'object' && 'message' in body && typeof body.message === 'string' ? body.message : `请求失败 (${response.status})`
-    throw new Error(message)
+    const code = body && typeof body === 'object' && 'code' in body && typeof body.code === 'string' ? body.code : undefined
+    throw new ApiError(message, code)
   }
   return body as T
 }
@@ -135,6 +150,8 @@ export const api = {
   syncOpenRouterModels: () => request<{ status: string; models: ModelOption[]; fetchedAt: string }>('/api/v1/openrouter/models/sync', { method: 'POST' }),
   openRouterPrompt: () => request<{ prompt: string; generatedAt: string }>('/api/v1/openrouter/prompt'),
   debugStatus: () => request<{ enabled: boolean }>('/api/v1/debug'),
+  suiSession: () => request<{ status: 'authenticated' }>('/api/v1/sui/session', { cache: 'no-store' }),
+  loginSui: (account: string, password: string) => request<SuiLoginResult>('/api/v1/sui/session', { method: 'POST', body: JSON.stringify({ account, password }) }),
   listBooks: () => request<{ status: string; currentBookName: string; books: BookOption[]; updatedAt?: string }>('/api/v1/sui/books'),
   syncBooks: () => request<{ status: string; currentBookName: string; books: BookOption[]; updatedAt?: string }>('/api/v1/sui/books/sync', { method: 'POST' }),
   syncBook: (bookName: string) => request<{ status: string; metadata: SyncedMetadata }>('/api/v1/sui/sync', { method: 'POST', body: JSON.stringify({ bookName }) }),
@@ -142,6 +159,7 @@ export const api = {
 }
 
 export interface SubmitPreview {
+  contextId: string
   method: string
   url: string
   headers: Record<string, string>

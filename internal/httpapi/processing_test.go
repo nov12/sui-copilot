@@ -78,7 +78,7 @@ func TestSubmitResolvedEntryPersistsResultAfterCancellation(t *testing.T) {
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 			})}
 
-			updated, result, err := server.submitResolvedEntry(ctx, entry, sui.WriteInput{Type: "expense", Amount: "35"})
+			updated, result, err := server.submitResolvedEntry(ctx, entry, sui.WriteInput{BookID: "1", Type: "expense", Amount: "35"})
 			if err != nil {
 				t.Fatalf("cancelled request prevented result persistence: %v", err)
 			}

@@ -148,6 +148,24 @@ func TestArchFromExecutableName(t *testing.T) {
 	}
 }
 
+func TestFetchJSONWithoutAuthorization(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "unused-token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authorization := r.Header.Get("Authorization"); authorization != "" {
+			t.Errorf("unexpected Authorization header: %q", authorization)
+		}
+		writeJSON(w, &Release{TagName: "v0.2.0"})
+	}))
+	defer server.Close()
+	var release Release
+	if err := fetchJSON(context.Background(), testClient(), server.URL, &release); err != nil {
+		t.Fatalf("fetchJSON: %v", err)
+	}
+	if release.TagName != "v0.2.0" {
+		t.Errorf("tag = %q", release.TagName)
+	}
+}
+
 func TestFetchReleaseLatest(t *testing.T) {
 	release := &Release{TagName: "v0.2.0", Assets: []struct {
 		Name string `json:"name"`

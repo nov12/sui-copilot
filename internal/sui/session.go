@@ -29,6 +29,7 @@ const loginBaseURL = "https://login.sui.com"
 const httpUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 var (
+	ErrLoginRejected         = errors.New("sui login rejected")
 	ErrLoginFailed           = errors.New("sui login failed")
 	ErrSessionNotConfigured  = errors.New("sui session is not configured")
 	ErrSessionStoreCorrupted = errors.New("sui session store is corrupted")
@@ -36,7 +37,7 @@ var (
 
 // Session keeps the browser-like cookie jar used by the lightweight HTTP
 // login flow. Passwords are never part of Session and are only held by the
-// caller while Login is running.
+// caller during authentication.
 type Session struct {
 	Jar *PersistentJar
 
@@ -176,7 +177,7 @@ func NewSession(sessionPath, keyPath string) (*Session, error) {
 }
 
 // LoadSession loads an existing encrypted session. os.ErrNotExist is
-// returned when the user has not completed auth login yet.
+// returned when the session file does not exist.
 func LoadSession(sessionPath, keyPath string) (*Session, error) {
 	if strings.TrimSpace(sessionPath) == "" || strings.TrimSpace(keyPath) == "" {
 		return nil, ErrSessionNotConfigured
@@ -187,7 +188,7 @@ func LoadSession(sessionPath, keyPath string) (*Session, error) {
 	}
 	key, err := os.ReadFile(keyPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: read session key: %v", ErrSessionStoreCorrupted, err)
 	}
 	plaintext, err := security.Open(key, ciphertext)
 	if err != nil {
@@ -321,64 +322,69 @@ type loginResponse struct {
 	Status string `json:"status"`
 }
 
-// Login performs the same lightweight login handshake used by the current
-// login.sui.com page. status=1 is the website's "keep me signed in" option.
-// The password is hashed before transmission and is never stored.
-func Login(ctx context.Context, baseURL, email, password, sessionPath, keyPath string) (Metadata, error) {
-	email = strings.TrimSpace(email)
-	password = strings.TrimSpace(password)
-	if email == "" || password == "" {
+// Authenticate runs the Sui login handshake against a fresh session. The caller
+// saves and installs the session only after the account's web pages are accessible.
+func (s *Session) Authenticate(ctx context.Context, httpClient *http.Client, baseURL, account, password string) (Metadata, error) {
+	if baseURL == "" {
+		baseURL = "https://www.sui.com"
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil || base.Scheme != "https" || base.Host == "" || base.User != nil || base.ForceQuery || base.RawQuery != "" || base.Fragment != "" {
 		return Metadata{}, ErrLoginFailed
 	}
-	session, err := NewSession(sessionPath, keyPath)
-	if err != nil {
-		return Metadata{}, err
+	allowedOrigin := func(target *url.URL) bool {
+		return target.Scheme == "https" && target.User == nil && (target.Host == "login.sui.com" || target.Host == base.Host)
 	}
-	client := &http.Client{Jar: session.Jar, Timeout: 20 * time.Second}
-	return loginWithClient(ctx, client, session, baseURL, email, password)
-}
-
-func loginWithClient(ctx context.Context, client *http.Client, session *Session, baseURL, email, password string) (Metadata, error) {
+	client := *httpClient
+	client.Jar = s.Jar
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 || !allowedOrigin(req.URL) {
+			return ErrLoginFailed
+		}
+		return nil
+	}
+	// The challenge and sign-in calls are not redirects. Never forward the
+	// account or password digest in a redirected request or its Referer.
+	loginClient := client
+	loginClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	vccode := loginVccode{}
-	if err := getLoginJSON(ctx, client, loginBaseURL+"/login.do", url.Values{"opt": {"vccode"}}, &vccode); err != nil {
-		return Metadata{}, err
-	}
-	if vccode.Vccode == "" || vccode.UID == "" {
+	if err := getLoginJSON(ctx, &loginClient, loginBaseURL+"/login.do", url.Values{"opt": {"vccode"}}, &vccode); err != nil || vccode.Vccode == "" || vccode.UID == "" {
 		return Metadata{}, ErrLoginFailed
 	}
 
-	hash := loginPasswordHash(email, password, vccode.Vccode)
 	response := loginResponse{}
-	if err := getLoginJSON(ctx, client, loginBaseURL+"/login.do", url.Values{
-		"email":    {email},
-		"status":   {"1"},
-		"password": {hash},
+	if err := getLoginJSON(ctx, &loginClient, loginBaseURL+"/login.do", url.Values{
+		"email":    {account},
+		"status":   {"1"}, // Keep me signed in.
+		"password": {loginPasswordHash(account, password, vccode.Vccode)},
 		"uid":      {vccode.UID},
 	}, &response); err != nil {
-		return Metadata{}, err
-	}
-	if response.Status != "ok" {
+		if errors.Is(err, ErrSessionExpired) {
+			return Metadata{}, ErrLoginRejected
+		}
 		return Metadata{}, ErrLoginFailed
 	}
+	if response.Status == "" {
+		return Metadata{}, ErrLoginFailed
+	}
+	if response.Status != "ok" {
+		return Metadata{}, ErrLoginRejected
+	}
 
-	// The legacy SSO endpoint selects its destination from the authenticated
-	// server-side session. The established lightweight client calls auth.do
-	// without adding a second returnUrl query; keep that wire format here.
-	authURL := loginBaseURL + "/auth.do"
+	// auth.do selects its destination from the authenticated session.
 	referer := loginBaseURL + "/login.jsp?returnUrl=" + url.QueryEscape(strings.TrimRight(baseURL, "/")+"/sso/redirect.do")
-	if err := visit(ctx, client, authURL, referer); err != nil {
-		return Metadata{}, err
+	if err := visit(ctx, &client, loginBaseURL+"/auth.do", referer, allowedOrigin); err != nil {
+		return Metadata{}, ErrLoginFailed
 	}
-
-	metadata, err := listBooksWithClient(ctx, client, baseURL)
+	metadata, err := listBooksWithClient(ctx, &client, baseURL)
+	if err == nil {
+		_, err = getWithClient(ctx, &client, baseURL, "/tally/new.do")
+	}
+	if errors.Is(err, ErrSessionExpired) {
+		return Metadata{}, ErrLoginRejected
+	}
 	if err != nil {
-		return Metadata{}, err
-	}
-	if _, err := getWithClient(ctx, client, baseURL, "/tally/new.do"); err != nil {
-		return Metadata{}, err
-	}
-	if err := session.Save(); err != nil {
-		return Metadata{}, err
+		return Metadata{}, ErrLoginFailed
 	}
 	return metadata, nil
 }
@@ -420,7 +426,7 @@ func getLoginJSON(ctx context.Context, client *http.Client, endpoint string, que
 	return nil
 }
 
-func visit(ctx context.Context, client *http.Client, endpoint, referer string) error {
+func visit(ctx context.Context, client *http.Client, endpoint, referer string, allowedOrigin func(*url.URL) bool) error {
 	method := http.MethodGet
 	currentURL := endpoint
 	form := url.Values(nil)
@@ -444,6 +450,10 @@ func visit(ctx context.Context, client *http.Client, endpoint, referer string) e
 		}
 		if !ok {
 			return nil
+		}
+		target, err := url.Parse(nextURL)
+		if err != nil || !allowedOrigin(target) {
+			return ErrLoginFailed
 		}
 		method = nextMethod
 		currentURL = nextURL

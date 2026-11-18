@@ -44,6 +44,8 @@ func (s *Server) checkUncertainEntry(ctx context.Context, id int64) (reconcileOu
 	if err != nil {
 		return reconcileOutcome{Entry: entry}, errReconcileInvalidDraft
 	}
+	s.suiMu.Lock()
+	defer s.suiMu.Unlock()
 	input, err := s.resolveWriteInput(ctx, draft)
 	if err != nil {
 		return reconcileOutcome{Entry: entry}, err
@@ -52,7 +54,7 @@ func (s *Server) checkUncertainEntry(ctx context.Context, id int64) (reconcileOu
 	if err != nil {
 		return reconcileOutcome{Entry: entry}, errReconcileInvalidDate
 	}
-	transactions, err := s.suiClient().List(ctx, when.Format("2006.01.02"), when.AddDate(0, 0, 1).Format("2006.01.02"))
+	transactions, err := s.suiClient().List(ctx, input.BookID, when.Format("2006.01.02"), when.AddDate(0, 0, 1).Format("2006.01.02"))
 	if err != nil {
 		return reconcileOutcome{Entry: entry}, &reconcileLookupError{err: err}
 	}
@@ -90,6 +92,9 @@ func (s *Server) reconcileUncertainEntries(ctx context.Context) reconcileStats {
 		if err != nil {
 			stats.Errors++
 			s.logger.Error("automatic reconciliation failed", "entry_id", entry.ID, "error", err)
+			if isSuiSessionError(err) {
+				break
+			}
 			continue
 		}
 		stats.Checked++

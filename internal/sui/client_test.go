@@ -155,7 +155,7 @@ func TestWriteDoesNotRetryAndParsesSuccess(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	})
 	client := testClient(t, "https://sui.test", "自己账本", transport)
-	result, err := client.Write(context.Background(), WriteInput{Type: "expense", CategoryID: "2", AccountID: "3", When: "2026-09-09 12:00", Amount: "35.00"})
+	result, err := client.Write(context.Background(), WriteInput{BookID: "1", Type: "expense", CategoryID: "2", AccountID: "3", When: "2026-09-09 12:00", Amount: "35.00"})
 	if err != nil || result.UpstreamID != "12345" {
 		t.Fatalf("unexpected write result: %+v err=%v", result, err)
 	}
@@ -206,7 +206,7 @@ func TestWriteDeadlineDoesNotRetryOrOverrideCallerDeadline(t *testing.T) {
 		body := `<li data-bookId="1" class="current">自己账本</li>`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	}))
-	_, err := client.Write(ctx, WriteInput{Type: "expense", Amount: "35"})
+	_, err := client.Write(ctx, WriteInput{BookID: "1", Type: "expense", Amount: "35"})
 	if !errors.Is(err, ErrUncertain) || writes != 1 {
 		t.Fatalf("timed-out write was not kept uncertain without retry: err=%v writes=%d", err, writes)
 	}
@@ -228,7 +228,7 @@ func TestWriteParsesNestedSuccessIDAndPrice(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	})
 	client := testClient(t, "https://sui.test", "自己账本", transport)
-	result, err := client.Write(context.Background(), WriteInput{Type: "expense", CategoryID: "2", AccountID: "3", When: "2026-09-10 12:00", Amount: "1234.5"})
+	result, err := client.Write(context.Background(), WriteInput{BookID: "1", Type: "expense", CategoryID: "2", AccountID: "3", When: "2026-09-10 12:00", Amount: "1234.5"})
 	if err != nil {
 		t.Fatalf("nested success response was rejected: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestWriteResponseFormatsAndFailureBoundaries(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 			}))
-			result, err := client.Write(context.Background(), WriteInput{Type: "expense"})
+			result, err := client.Write(context.Background(), WriteInput{BookID: "1", Type: "expense"})
 			if !errors.Is(err, tc.wantErr) || result.UpstreamID != tc.id || writes != 1 {
 				t.Fatalf("result=%+v err=%v writes=%d", result, err, writes)
 			}
@@ -274,6 +274,23 @@ func TestWriteResponseFormatsAndFailureBoundaries(t *testing.T) {
 	result, err := parseWriteResult([]byte(`{id:-999,errorInfo:"分类错误,price:12,{id:99},包含\"引号\""}`))
 	if err != nil || result.ID != -999 || result.ErrorInfo != info {
 		t.Fatalf("rejection text changed: %+v err=%v", result, err)
+	}
+}
+
+func TestStaleBookMetadataBlocksWriteAndReconciliation(t *testing.T) {
+	client := testClient(t, "https://sui.test", "自己账本", roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/report_index.do" {
+			t.Fatalf("sent request %s using another book's metadata", r.URL.Path)
+		}
+		body := `<li data-bookId="2" class="current">自己账本</li>`
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+	}))
+	ctx := context.Background()
+	if _, err := client.Write(ctx, WriteInput{BookID: "1", Type: "expense"}); !errors.Is(err, ErrBookMetadataMismatch) {
+		t.Fatalf("write returned %v", err)
+	}
+	if _, err := client.List(ctx, "1", "2026.09.09", "2026.09.10"); !errors.Is(err, ErrBookMetadataMismatch) {
+		t.Fatalf("reconciliation returned %v", err)
 	}
 }
 
@@ -293,7 +310,7 @@ func TestListAcceptsNumericTransactionIDs(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	})
 	client := testClient(t, "https://sui.test", "自己账本", transport)
-	transactions, err := client.List(context.Background(), "2026.09.09", "2026.09.10")
+	transactions, err := client.List(context.Background(), "1", "2026.09.09", "2026.09.10")
 	if err != nil || len(transactions) != 1 {
 		t.Fatalf("numeric transaction response was not parsed: %+v err=%v", transactions, err)
 	}

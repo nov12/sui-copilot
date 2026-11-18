@@ -20,7 +20,7 @@
 
 ## 2. 配置建议
 
-正式工程必须先执行 `sui-copilot auth login`，让 Go 客户端完成随手记当前的保持登录状态流程并加密保存 CookieJar。服务端只从加密会话文件读取登录状态，不接受手工 Cookie 配置：
+服务启动后，请在网页登录随手记。Go 客户端完成随手记的保持登录状态流程，启用并加密保存 CookieJar。以下环境变量可覆盖相应的文件配置。
 
 ```text
 SUI_BASE_URL=https://www.sui.com
@@ -50,7 +50,7 @@ level = "info" # debug / info / warn / error
 
 随手记当前登录页先请求 `/login.do?opt=vccode`，再按网页脚本计算密码摘要并请求 `/login.do`，成功后访问 `/auth.do`，解析并提交其可能返回的隐藏表单，最后进入 `www.sui.com/sso/redirect.do`。VCCode 和登录响应当前返回普通 JSON，同时兼容旧版 JSONP。本工具应使用 `http.CookieJar` 接收登录和 SSO 跳转中的全部 `Set-Cookie`，而不是从浏览器手工复制单个 Cookie。
 
-“保持登录状态”对应登录请求中的 `status=1`。密码只在一次交互式登录进程中使用，不写入 TOML、SQLite、日志或 API 响应；会话文件使用本地 owner-only 密钥加密保存。服务进程启动时加载一份会话并共享请求限频状态；重新执行登录后应重启服务加载新会话。
+“保持登录状态”对应登录请求中的 `status=1`。服务端只在本次请求中使用密码。会话文件使用本地 owner-only 密钥加密保存，保存成功后立即启用新会话。
 
 ## 3. 随手记会话与页面接口
 
@@ -80,7 +80,7 @@ Cookie: 由本工具内部 CookieJar 自动附带当前会话
 1. 不要让浏览器和服务器同时高频使用同一个会话 cookie。
 2. 元数据刷新采用手动或低频策略，一次只执行必要的请求，不做并发抓取。
 3. 遇到登录重定向、`id == -1`、连续 401/403 或响应结构异常时，立即停止后续请求。
-4. 会话失效后不自动登录、不自动注销、不自动更换 cookie 重试；由用户重新执行 `sui-copilot auth login`，再恢复服务访问。
+4. 优先使用长期 Cookie 恢复短会话。长期凭据失效时由用户在网页重新登录。记账请求发送后应按结果处理，登录成功不会重放写入。
 5. 不把 User-Agent 当成安全措施，也不以伪装客户端特征为目标。优先使用官方导出/接口；若只能使用网页私有接口，应接受其不稳定性和账号风控风险。
 6. 服务器、浏览器和模型服务日志都必须隐藏 cookie、完整请求头和完整上游响应。
 
@@ -528,11 +528,17 @@ PATCH /api/v1/settings
 Content-Type: application/json
 ```
 
-可读写的普通配置为 `sui_book_name`、`llm_provider`、`llm_base_url`、`llm_model` 和 `llm_prompt`。`llm_provider` 可选 `openai`、`openrouter`、`custom`。第一版只支持 OpenAI-compatible Chat Completions，不支持 Responses API 或旧的 `/completions` 文本接口。OpenAI 和 OpenRouter 使用内置 Base URL；`custom` 必须填写 Base URL，服务端会请求 `{base_url}/chat/completions`，并尝试请求 `{base_url}/models`。自定义端点需要支持当前使用的 `response_format.type = "json_schema"`。其中 `llm_prompt` 是用户可编辑的解析补充提示，只作为偏好追加到固定系统规则之前；固定的 JSON Schema、当前账簿分类约束和“无法确定时要求确认”规则不会被覆盖。`llm_api_key` 只允许写入，GET 响应只返回已配置状态，不返回原文。随手记地址 `sui_base_url` 仍只在 TOML 中配置，不通过网页设置接口读写。随手记会话不通过内部设置接口提交，只能使用 `sui-copilot auth login` 建立或更新加密 CookieJar。网页保存后统一原子写入启动时使用的 TOML 文件，并以 owner-only 权限保存；配置项不会写入 SQLite。
+可读写的普通配置为 `sui_book_name`、`llm_provider`、`llm_base_url`、`llm_model` 和 `llm_prompt`。`llm_provider` 可选 `openai`、`openrouter`、`custom`。第一版只支持 OpenAI-compatible Chat Completions，不支持 Responses API 或旧的 `/completions` 文本接口。OpenAI 和 OpenRouter 使用内置 Base URL；`custom` 必须填写 Base URL，服务端会请求 `{base_url}/chat/completions`，并尝试请求 `{base_url}/models`。自定义端点需要支持当前使用的 `response_format.type = "json_schema"`。其中 `llm_prompt` 是用户可编辑的解析补充提示，只作为偏好追加到固定系统规则之前；固定的 JSON Schema、当前账簿分类约束和“无法确定时要求确认”规则不会被覆盖。`llm_api_key` 只允许写入，GET 响应只返回已配置状态，不返回原文。随手记地址 `sui_base_url` 仍只在 TOML 中配置，不通过网页设置接口读写。随手记会话通过独立的登录接口建立和更新，详见第 8.1.1 节。网页保存后统一原子写入启动时使用的 TOML 文件，并以 owner-only 权限保存；配置项不会写入 SQLite。
 
 旧字段 `openrouter_model`、`openrouter_prompt` 和 `openrouter_api_key` 仍可提交作为兼容别名。旧的 `[openrouter]` TOML 配置仍可读取，网页下次保存时转换为 `[llm]`。切换服务商时必须同时提交新服务商的 API Key；同一服务商下 API Key 为空表示保持原值。
 
 `sui_book_name` 是唯一的账簿配置入口，不接受账簿 ID 配置。连接检查或写入前，服务端会从随手记账簿列表按名称查找：零个结果、多个同名结果和当前会话账簿不匹配都会中止。
+
+#### 8.1.1 登录随手记
+
+`GET /api/v1/sui/session` 使用账簿首页验证已保存的会话，成功返回 `{"status":"authenticated"}`。`sui_session_not_configured`、`sui_session_expired` 和 `sui_session_corrupted` 分别提示首次登录、长期凭据失效和本地会话不可用。
+
+`POST /api/v1/sui/session` 从同源 JSON 请求中读取 `account` 和 `password`，验证后原子保存加密会话文件并立即启用。响应返回 `currentBookName`、`books`、`updatedAt` 和 `metadataReady`。`metadataReady` 表示新会话已验证目标账簿，且最新分类快照的账簿 ID 与之相同。需要重新同步时，服务在启用新会话前清除旧分类缓存。页面刷新和后台解析都以此缓存为准。`updatedAt` 为空表示账簿列表未写入缓存，可以单独同步。
 
 ### 8.2 模型服务模型列表
 
@@ -665,7 +671,7 @@ POST /api/v1/entries/{id}/submit-preview
 POST /api/v1/entries/{id}/submit-preview/execute
 ```
 
-`submit-preview` 只生成实际随手记提交的 method、URL、headers 和 form payload，不发送请求。`execute` 接收可编辑的预览对象后发送一次请求，并返回上游 status、headers 和原始 body；失败响应也以 HTTP 200 的预览结果返回，便于页面展示。后台固定 URL 必须属于当前随手记地址、method 必须为 `POST`、路径必须与支出/收入类型一致；Cookie 和 Authorization 不接受前台覆盖。
+`submit-preview` 返回 method、URL、headers、form payload，以及绑定生成时会话和账簿的 `contextId`。调用方编辑请求参数后，应原样带回此标识。`execute` 校验会话版本和随手记当前账簿，预览已过期时返回 `409 stale_preview`。校验通过后执行一次写入并返回上游 status、headers 和 body。后台固定 URL 必须属于当前随手记地址、method 必须为 `POST`、路径必须与支出/收入类型一致；Cookie 和 Authorization 不接受前台覆盖。
 
 ### 8.7 预览和结构化解析（后续接口设计）
 
@@ -803,7 +809,7 @@ OpenAI、OpenRouter 和自定义 OpenAI-compatible 服务都必须支持当前 C
 
 ## 11. 工程验收清单
 
-- [ ] 能通过 `auth login` 建立会话并获取 `tally/new.do`
+- [ ] 能通过网页登录建立和更新会话，并获取 `tally/new.do`
 - [ ] 能解析当前账本和账本列表
 - [ ] 能解析支出/收入分类及父子关系
 - [ ] 能解析商家、账户、项目、成员的真实 ID

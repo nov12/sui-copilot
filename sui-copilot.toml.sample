@@ -1,7 +1,6 @@
 # Copy beside the sui-copilot binary as sui-copilot.toml.
-# Normally only the session credentials and model-service API key need to be
-# supplied manually. The web UI writes the selected book and LLM settings back
-# to this file.
+# Sign in to Sui and configure the model service in the web UI.
+# The service writes the selected book and LLM settings back to this file.
 
 [server]
 listen_addr = "127.0.0.1:8080"
@@ -12,10 +11,11 @@ data_dir = "./data"
 level = "info"
 
 [sui]
+# The web login flow requires an HTTPS base URL.
 base_url = "https://www.sui.com"
 # session_file and session_key_file default below data_dir.
-# Created by `auth login`, then updated when cookies change or SSO restores the web session.
-# Long-lived login expiry still requires `auth login`; do not put a password here.
+# The service creates these files when you sign in on the web page.
+# Sign in on the web page again if the saved session expires.
 # session_file = "./data/sui-session.bin"
 # session_key_file = "./data/sui-session.key"
 # book_name is written after selecting a book in the web UI.

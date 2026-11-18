@@ -50,8 +50,7 @@ func TestCLIHelp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SUI_COPILOT_CONFIG", configPath)
-	rootTokens := []string{"sui-copilot " + buildinfo.Version, "auth login", "service", "install", "uninstall", "start", "stop", "restart", "status", "update", "-a, --addr", "-c, --config", "-d, --data-dir", "-D, --debug", "-v, --version", "-h, --help", "SUI_COPILOT_CONFIG", "GITHUB_TOKEN"}
-	authTokens := []string{"auth login", "-c, --config", "-d, --data-dir", "--help"}
+	rootTokens := []string{"sui-copilot " + buildinfo.Version, "打开网页即可登录随手记", "service", "install", "uninstall", "start", "stop", "restart", "status", "update", "-a, --addr", "-c, --config", "-d, --data-dir", "-D, --debug", "-v, --version", "-h, --help", "SUI_COPILOT_CONFIG"}
 	serviceTokens := []string{"install", "uninstall", "start", "stop", "restart", "status", "-c, --config", "-a, --addr", "-d, --data-dir", "--help"}
 	updateTokens := []string{"-c, --check", "-v, --version", "-r, --repo", "--help"}
 	type helpCase struct {
@@ -60,19 +59,15 @@ func TestCLIHelp(t *testing.T) {
 	}
 	cases := []helpCase{
 		{[]string{"help"}, rootTokens},
-		{[]string{"help", "auth", "login"}, authTokens},
 		{[]string{"help", "service", "install"}, serviceTokens},
 		{[]string{"help", "update"}, updateTokens},
 		{[]string{"--config", configPath, "--data-dir", filepath.Join(dir, "data"), "-h"}, rootTokens},
-		{[]string{"auth", "login", "-c", configPath, "-d", "unused", "-h"}, authTokens},
 		{[]string{"service", "install", "-c", configPath, "-a", "127.0.0.1:8080", "-d", "unused", "-h"}, serviceTokens},
 		{[]string{"update", "-c", "-r", "owner/name", "-v", "v0.3.0", "-h"}, updateTokens},
 	}
 	for _, helpFlag := range []string{"-h", "--help"} {
 		cases = append(cases,
 			helpCase{[]string{helpFlag}, rootTokens},
-			helpCase{[]string{"auth", helpFlag}, authTokens},
-			helpCase{[]string{"auth", "login", helpFlag}, authTokens},
 			helpCase{[]string{"service", helpFlag}, serviceTokens},
 			helpCase{[]string{"update", helpFlag}, updateTokens},
 		)
@@ -134,9 +129,7 @@ func TestCLIInvalidArgumentsFail(t *testing.T) {
 		{"-addr=127.0.0.1:8080", "-v"},
 		{"-data-dir", "unused", "-v"},
 		{"-debug", "-v"},
-		{"auth", "login", "unexpected"},
-		{"auth", "login", "-config", "unused.toml"},
-		{"auth", "login", "-data-dir", "unused"},
+		{"auth", "login"},
 		{"service", "install", "--unknown-flag"},
 		{"service", "install", "-config", "unused.toml"},
 		{"service", "install", "-addr", "127.0.0.1:8080"},
@@ -152,7 +145,7 @@ func TestCLIInvalidArgumentsFail(t *testing.T) {
 			cases = append(cases, []string{"service", command, option, "unused"})
 		}
 	}
-	for _, prefix := range [][]string{nil, {"auth", "login"}, {"service", "install"}, {"update"}} {
+	for _, prefix := range [][]string{nil, {"service", "install"}, {"update"}} {
 		for _, option := range []string{"--a", "--c", "--d", "--D", "--r", "--v", "--h", "-help"} {
 			args := append(append([]string{}, prefix...), option)
 			cases = append(cases, args)

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestLoginWithClientUsesKeepSignedInFlowAndPersistsJar(t *testing.T) {
+func TestAuthenticateUsesKeepSignedInFlowAndPersistsJar(t *testing.T) {
 	sessionPath := t.TempDir() + "/sui-session.bin"
 	keyPath := t.TempDir() + "/sui-session.key"
 	session, err := NewSession(sessionPath, keyPath)
@@ -64,8 +64,8 @@ func TestLoginWithClientUsesKeepSignedInFlowAndPersistsJar(t *testing.T) {
 		}
 		return &http.Response{StatusCode: status, Status: "200 OK", Body: io.NopCloser(strings.NewReader(body)), Header: header, Request: r}, nil
 	})
-	client := &http.Client{Jar: session.Jar, Transport: transport}
-	metadata, err := loginWithClient(context.Background(), client, session, "https://www.sui.com", email, password)
+	client := &http.Client{Transport: transport}
+	metadata, err := session.Authenticate(context.Background(), client, "https://www.sui.com", email, password)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +73,12 @@ func TestLoginWithClientUsesKeepSignedInFlowAndPersistsJar(t *testing.T) {
 		t.Fatalf("unexpected metadata: %+v", metadata)
 	}
 
+	if _, err := os.Stat(sessionPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("authentication must not replace the saved session: %v", err)
+	}
+	if err := session.Save(); err != nil {
+		t.Fatal(err)
+	}
 	ciphertext, err := os.ReadFile(sessionPath)
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +94,46 @@ func TestLoginWithClientUsesKeepSignedInFlowAndPersistsJar(t *testing.T) {
 	cookies := loaded.Jar.Cookies(urlValue)
 	if len(cookies) != 1 || cookies[0].Name != "session" || cookies[0].Value != "secret" {
 		t.Fatalf("unexpected restored cookies: %+v", cookies)
+	}
+}
+
+func TestAuthenticateKeepsLoginExchangeWithinTrustedOrigins(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, location, formAction string
+	}{
+		{name: "credential request redirect", path: "/login.do", location: "https://www.sui.com/report_index.do"},
+		{name: "untrusted SSO redirect", path: "/auth.do", location: "https://external.example/"},
+		{name: "untrusted SSO form", path: "/auth.do", formAction: "https://external.example/"},
+		{name: "insecure SSO form", path: "/auth.do", formAction: "http://www.sui.com/sso/redirect.do"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			session, err := NewSession(dir+"/session.bin", dir+"/session.key")
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Host != "login.sui.com" || (r.URL.Path != "/login.do" && r.URL.Path != "/auth.do") {
+					t.Fatalf("followed an unexpected login target: %s %s", r.URL.Host, r.URL.Path)
+				}
+				resp := &http.Response{StatusCode: 200, Header: make(http.Header), Request: r}
+				body := `{"status":"ok"}`
+				switch {
+				case r.URL.Query().Get("opt") == "vccode":
+					body = `{"vccode":"vccode","uid":"mock-uid"}`
+				case r.URL.Path == tc.path && tc.location != "":
+					resp.StatusCode = http.StatusTemporaryRedirect
+					resp.Header.Set("Location", tc.location)
+				case r.URL.Path == "/auth.do":
+					body = `<body onload="document.forms[0].submit()"><form method="POST" action="` + tc.formAction + `"><input name="ticket" value="mock-ticket"></form></body>`
+				}
+				resp.Body = io.NopCloser(strings.NewReader(body))
+				return resp, nil
+			})}
+			if _, err := session.Authenticate(context.Background(), client, "https://www.sui.com", "account", "password"); !errors.Is(err, ErrLoginFailed) {
+				t.Fatalf("unexpected authentication result: %v", err)
+			}
+		})
 	}
 }
 

@@ -135,9 +135,6 @@ func fetchJSON(ctx context.Context, client *http.Client, endpoint string, target
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", userAgent)
-	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
