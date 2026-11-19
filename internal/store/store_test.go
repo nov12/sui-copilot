@@ -92,6 +92,33 @@ func TestRecoverInterruptedEntriesMarksProcessingAsRejected(t *testing.T) {
 	}
 }
 
+func TestStructuredEntryRecoveryPreservesDraftAndBook(t *testing.T) {
+	db, err := Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := t.Context()
+	const draft = `{"type":"expense","amount":"35.00"}`
+	for before, after := range map[string]string{"processing": "queued", "committing": "uncertain"} {
+		entry, _, err := db.CreateStructuredEntry(ctx, before, "book-1", "午饭 35.00", draft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.SetState(ctx, entry.ID, "queued", before, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.RecoverInterruptedEntries(ctx); err != nil {
+			t.Fatal(err)
+		}
+		resumed, err := db.Get(ctx, entry.ID)
+		if err != nil || resumed.State != after || resumed.BookID != entry.BookID || resumed.DraftJSON != draft {
+			t.Fatalf("recover %s: %+v, %v", before, resumed, err)
+		}
+	}
+}
+
 func TestRecoverInterruptedCommitRequiresReconciliation(t *testing.T) {
 	db, err := Open(t.TempDir() + "/test.db")
 	if err != nil {

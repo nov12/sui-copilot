@@ -132,17 +132,30 @@ func (s *Server) processEntry(ctx context.Context, id int64) error {
 	if entry.State != accounting.StateQueued {
 		return nil
 	}
-	entry, err = s.db.SetState(ctx, id, accounting.StateQueued, accounting.StateProcessing, "parse_started", "后台解析中")
+	structured := entry.BookID != ""
+	code, message := "parse_started", "后台解析中"
+	if structured {
+		code, message = "validation_started", "校验结构化账目"
+	}
+	entry, err = s.db.SetState(ctx, id, accounting.StateQueued, accounting.StateProcessing, code, message)
 	if err != nil {
 		return err
 	}
 
-	draft, err := s.parseWithAI(ctx, entry.InputText)
-	// Parsing may return after cancellation. Local state transitions still
-	// need a short opportunity to finish, without extending upstream work.
+	var draft accounting.Draft
+	if structured {
+		draft, err = accounting.DecodeDraft(entry.DraftJSON)
+	} else {
+		draft, err = s.parseWithAI(ctx, entry.InputText)
+	}
+	// Persist local state even when background work uses its full time budget.
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statePersistenceTimeout)
 	defer cancel()
 	if err != nil {
+		if structured {
+			_, err = s.db.CompleteProcessing(saveCtx, id, entry.DraftJSON, accounting.StateRejected, "invalid_draft", "结构化草稿损坏")
+			return err
+		}
 		if ctx.Err() != nil {
 			// A manual interrupt changes the database state before cancelling the
 			// request. If the timeout itself fires, also avoid leaving the entry
@@ -174,9 +187,9 @@ func (s *Server) processEntry(ctx context.Context, id int64) error {
 	}
 
 	if missing := accounting.MissingConfirmation(draft); draft.NeedsConfirm || len(missing) > 0 {
-		message := "解析结果需要人工确认"
+		message := "账目需要人工确认"
 		if len(missing) > 0 {
-			message = "解析结果缺少必要字段，请人工补充后确认"
+			message = "草稿缺少必要字段，请人工补充后确认"
 		}
 		_, err = s.db.CompleteProcessing(saveCtx, id, raw, accounting.StateNeedsConfirmation, "needs_confirmation", message)
 		return err
@@ -185,18 +198,13 @@ func (s *Server) processEntry(ctx context.Context, id int64) error {
 		_, completeErr := s.db.CompleteProcessing(saveCtx, id, raw, accounting.StateNeedsConfirmation, "invalid_draft", err.Error())
 		return completeErr
 	}
-	if err := s.validateDraftCategory(saveCtx, draft); err != nil {
-		_, code, message := submitErrorDetails(err)
-		_, completeErr := s.db.CompleteProcessing(saveCtx, id, raw, accounting.StateNeedsConfirmation, code, message)
-		return completeErr
-	}
-	input, err := s.resolveWriteInput(saveCtx, draft)
+	input, err := s.resolveWriteInput(saveCtx, entry, draft)
 	if err != nil {
 		_, code, message := submitErrorDetails(err)
 		_, completeErr := s.db.CompleteProcessing(saveCtx, id, raw, accounting.StateNeedsConfirmation, code, message)
 		return completeErr
 	}
-	entry, err = s.db.CompleteProcessing(saveCtx, id, raw, accounting.StatePendingSubmission, "", "解析完成，准备自动提交")
+	entry, err = s.db.CompleteProcessing(saveCtx, id, raw, accounting.StatePendingSubmission, "", "草稿已就绪")
 	if err != nil {
 		return err
 	}

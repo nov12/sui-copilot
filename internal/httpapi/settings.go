@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,7 +39,9 @@ var secretSettingKeys = map[string]bool{
 
 var errCategoryMetadataNotSynced = errors.New("category metadata has not been synced")
 var errCategoryMetadataBookMismatch = errors.New("category metadata belongs to another book")
+var errEntryBookMismatch = errors.New("entry belongs to another book")
 var errAccountNotFound = errors.New("account was not found in current book")
+var errInvalidBookField = errors.New("当前账簿中没有唯一匹配的值")
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	settings, secrets := s.settingsResponse()
@@ -471,59 +474,74 @@ func (s *Server) syncAndSaveMetadata(ctx context.Context, client *sui.Client) (s
 	return metadata, nil
 }
 
-func (s *Server) validateDraftCategory(ctx context.Context, draft accounting.Draft) error {
+func (s *Server) bookMetadata(ctx context.Context) (sui.Metadata, error) {
 	snapshot, err := s.db.LatestMetadata(ctx)
 	if errors.Is(err, store.ErrNotFound) {
-		return errCategoryMetadataNotSynced
+		return sui.Metadata{}, errCategoryMetadataNotSynced
 	}
 	if err != nil {
-		return err
+		return sui.Metadata{}, err
 	}
 	var metadata sui.Metadata
 	if err := json.Unmarshal([]byte(snapshot.Payload), &metadata); err != nil {
-		return errCategoryMetadataNotSynced
+		return sui.Metadata{}, errCategoryMetadataNotSynced
 	}
 	configuredBook := strings.TrimSpace(s.runtimeConfig().Sui.BookName)
 	if configuredBook == "" || strings.TrimSpace(metadata.CurrentBook.Name) != configuredBook {
-		return errCategoryMetadataBookMismatch
+		return sui.Metadata{}, errCategoryMetadataBookMismatch
 	}
-	_, err = sui.ResolveLeafCategory(metadata, draft.Type, "", draft.CategoryName)
-	return err
+	return metadata, nil
 }
 
-func (s *Server) resolveWriteInput(ctx context.Context, draft accounting.Draft) (sui.WriteInput, error) {
-	_, metadata, err := s.parseContext(ctx, time.Now().In(time.FixedZone("Asia/Shanghai", 8*60*60)))
+func (s *Server) resolveWriteInput(ctx context.Context, entry store.Entry, draft accounting.Draft) (sui.WriteInput, error) {
+	metadata, err := s.bookMetadata(ctx)
 	if err != nil {
 		return sui.WriteInput{}, err
+	}
+	structured := entry.BookID != ""
+	if structured && entry.BookID != metadata.CurrentBook.ID {
+		return sui.WriteInput{}, errEntryBookMismatch
 	}
 	category, err := sui.ResolveLeafCategory(metadata, draft.Type, "", draft.CategoryName)
 	if err != nil {
 		return sui.WriteInput{}, err
 	}
 	accountName := strings.TrimSpace(draft.AccountName)
-	if accountName == "" && len(metadata.Accounts) > 0 {
+	if accountName == "" && len(metadata.Accounts) > 0 && !structured {
 		accountName = strings.TrimSpace(metadata.Accounts[0].Name)
 	}
-	accountID := metadataItemID(metadata.Accounts, accountName)
+	accountID := metadataItemID(metadata.Accounts, accountName, structured)
 	if accountID == "" {
 		return sui.WriteInput{}, errAccountNotFound
 	}
-	return sui.WriteInput{
+	input := sui.WriteInput{
 		BookID:     metadata.CurrentBook.ID,
 		Type:       draft.Type,
 		CategoryID: category.ID,
-		StoreID:    metadataItemID(metadata.Stores, draft.StoreName),
+		StoreID:    metadataItemID(metadata.Stores, draft.StoreName, structured),
 		When:       draft.Date,
-		ProjectID:  metadataItemID(metadata.Projects, draft.ProjectName),
-		MemberID:   metadataItemID(metadata.Members, draft.MemberName),
+		ProjectID:  metadataItemID(metadata.Projects, draft.ProjectName, structured),
+		MemberID:   metadataItemID(metadata.Members, draft.MemberName, structured),
 		Memo:       draft.Memo,
 		AccountID:  accountID,
 		Amount:     draft.Amount,
-	}, nil
+	}
+	if structured {
+		for _, field := range []struct{ label, name, id string }{
+			{"商家", draft.StoreName, input.StoreID},
+			{"项目", draft.ProjectName, input.ProjectID},
+			{"成员", draft.MemberName, input.MemberID},
+		} {
+			if strings.TrimSpace(field.name) != "" && field.id == "" {
+				return sui.WriteInput{}, fmt.Errorf("%w，%s %q", errInvalidBookField, field.label, field.name)
+			}
+		}
+	}
+	return input, nil
 }
 
-func (s *Server) applyDefaultAccount(ctx context.Context, draft accounting.Draft) (accounting.Draft, error) {
-	if strings.TrimSpace(draft.AccountName) != "" {
+func (s *Server) applyDefaultAccount(ctx context.Context, entry store.Entry, draft accounting.Draft) (accounting.Draft, error) {
+	if entry.BookID != "" || strings.TrimSpace(draft.AccountName) != "" {
 		return draft, nil
 	}
 	contextData, _, err := s.parseContext(ctx, time.Now().In(time.FixedZone("Asia/Shanghai", 8*60*60)))
@@ -534,17 +552,29 @@ func (s *Server) applyDefaultAccount(ctx context.Context, draft accounting.Draft
 	return draft, nil
 }
 
-func metadataItemID(items []sui.Item, name string) string {
+func metadataItemID(items []sui.Item, name string, requireUnique bool) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return ""
 	}
+	var id string
 	for _, item := range items {
-		if strings.TrimSpace(item.Name) == name {
-			return strings.TrimSpace(item.ID)
+		if strings.TrimSpace(item.Name) != name {
+			continue
 		}
+		itemID := strings.TrimSpace(item.ID)
+		if !requireUnique {
+			return itemID
+		}
+		if itemID == "" {
+			continue
+		}
+		if id != "" && id != itemID {
+			return ""
+		}
+		id = itemID
 	}
-	return ""
+	return id
 }
 
 func publicBooks(books []sui.Book) []map[string]any {

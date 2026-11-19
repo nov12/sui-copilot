@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"errors"
@@ -24,6 +25,7 @@ type Entry struct {
 	ClientRequestID string `json:"clientRequestId"`
 	InputType       string `json:"inputType"`
 	InputText       string `json:"inputText"`
+	BookID          string `json:"bookId,omitempty"`
 	State           string `json:"state"`
 	Version         int    `json:"version"`
 	ReconcileMisses int    `json:"reconcileMisses,omitempty"`
@@ -32,6 +34,18 @@ type Entry struct {
 	ErrorMessage    string `json:"errorMessage,omitempty"`
 	CreatedAt       string `json:"createdAt"`
 	UpdatedAt       string `json:"updatedAt"`
+	requestHash     string // Fingerprint of the original structured draft, even after edits.
+}
+
+const entryColumns = `id, source, client_request_id, input_type, input_text, book_id, state, version, reconcile_misses, draft_json, error_code, error_message, created_at, updated_at, request_hash`
+
+func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
+	var e Entry
+	err := row.Scan(&e.ID, &e.Source, &e.ClientRequestID, &e.InputType, &e.InputText, &e.BookID, &e.State, &e.Version, &e.ReconcileMisses, &e.DraftJSON, &e.ErrorCode, &e.ErrorMessage, &e.CreatedAt, &e.UpdatedAt, &e.requestHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Entry{}, ErrNotFound
+	}
+	return e, err
 }
 
 type MetadataSnapshot struct {
@@ -66,6 +80,7 @@ var migrationFiles = map[int]string{
 	3: "migrations/003_reconcile_misses.sql",
 	4: "migrations/004_clear_success_errors.sql",
 	5: "migrations/005_llm_model_catalog.sql",
+	6: "migrations/006_structured_entries.sql",
 }
 
 func (db *DB) migrate(ctx context.Context) error {
@@ -74,7 +89,7 @@ func (db *DB) migrate(ctx context.Context) error {
 	// half-applied migration that fails to replay on the next start. The
 	// version table is created by the first transaction, so fresh databases
 	// cannot query it beforehand.
-	for _, version := range []int{1, 2, 3, 4, 5} {
+	for _, version := range []int{1, 2, 3, 4, 5, 6} {
 		tx, err := db.sql.BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -115,71 +130,73 @@ func (db *DB) CreateEntry(ctx context.Context, source, clientRequestID, inputTyp
 }
 
 func (db *DB) CreateEntryWithState(ctx context.Context, source, clientRequestID, inputType, inputText, state, draftJSON string) (Entry, bool, error) {
+	return db.createEntry(ctx, Entry{
+		Source: source, ClientRequestID: clientRequestID, InputType: inputType,
+		InputText: inputText, State: state, DraftJSON: draftJSON,
+	})
+}
+
+func (db *DB) CreateStructuredEntry(ctx context.Context, requestID, bookID, summary, draftJSON string) (Entry, bool, error) {
+	return db.createEntry(ctx, Entry{
+		Source: "structured", ClientRequestID: requestID, InputType: "structured",
+		InputText: summary, BookID: bookID, State: "queued", DraftJSON: draftJSON,
+		requestHash: fmt.Sprintf("%x", sha256.Sum256([]byte(draftJSON))),
+	})
+}
+
+func (db *DB) createEntry(ctx context.Context, entry Entry) (Entry, bool, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := db.sql.ExecContext(ctx, `INSERT INTO entries(source, client_request_id, input_type, input_text, state, draft_json, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)`, source, clientRequestID, inputType, inputText, state, draftJSON, now, now)
+	result, err := db.sql.ExecContext(ctx, `INSERT INTO entries(source, client_request_id, input_type, input_text, book_id, state, draft_json, created_at, updated_at, request_hash) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		entry.Source, entry.ClientRequestID, entry.InputType, entry.InputText, entry.BookID, entry.State, entry.DraftJSON, now, now, entry.requestHash)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			entry, getErr := db.GetByIdempotency(ctx, source, clientRequestID)
-			if getErr != nil {
-				return Entry{}, false, getErr
-			}
-			if entry.InputType != inputType || entry.InputText != inputText {
-				return Entry{}, false, ErrConflict
-			}
-			return entry, true, nil
+		if !strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return Entry{}, false, err
 		}
-		return Entry{}, false, err
+		existing, err := db.GetByIdempotency(ctx, entry.Source, entry.ClientRequestID)
+		if err != nil {
+			return Entry{}, false, err
+		}
+		if existing.InputType != entry.InputType || existing.BookID != entry.BookID || existing.requestHash != entry.requestHash ||
+			(entry.BookID == "" && existing.InputText != entry.InputText) {
+			return Entry{}, false, ErrConflict
+		}
+		return existing, true, nil
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
 		return Entry{}, false, err
 	}
-	entry, err := db.Get(ctx, id)
-	return entry, false, err
+	saved, err := db.Get(ctx, id)
+	return saved, false, err
 }
 
 func (db *DB) Get(ctx context.Context, id int64) (Entry, error) {
-	var e Entry
-	err := db.sql.QueryRowContext(ctx, `SELECT id, source, client_request_id, input_type, input_text, state, version, reconcile_misses, draft_json, error_code, error_message, created_at, updated_at FROM entries WHERE id=?`, id).Scan(&e.ID, &e.Source, &e.ClientRequestID, &e.InputType, &e.InputText, &e.State, &e.Version, &e.ReconcileMisses, &e.DraftJSON, &e.ErrorCode, &e.ErrorMessage, &e.CreatedAt, &e.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Entry{}, ErrNotFound
-	}
-	return e, err
+	return scanEntry(db.sql.QueryRowContext(ctx, `SELECT `+entryColumns+` FROM entries WHERE id=?`, id))
 }
 
 func (db *DB) GetByIdempotency(ctx context.Context, source, requestID string) (Entry, error) {
-	var e Entry
-	err := db.sql.QueryRowContext(ctx, `SELECT id, source, client_request_id, input_type, input_text, state, version, reconcile_misses, draft_json, error_code, error_message, created_at, updated_at FROM entries WHERE source=? AND client_request_id=?`, source, requestID).Scan(&e.ID, &e.Source, &e.ClientRequestID, &e.InputType, &e.InputText, &e.State, &e.Version, &e.ReconcileMisses, &e.DraftJSON, &e.ErrorCode, &e.ErrorMessage, &e.CreatedAt, &e.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Entry{}, ErrNotFound
-	}
-	return e, err
+	return scanEntry(db.sql.QueryRowContext(ctx, `SELECT `+entryColumns+` FROM entries WHERE source=? AND client_request_id=?`, source, requestID))
 }
 
 // FindByInput returns an existing entry with the same normalized input.
 // client_request_id is intentionally not part of this lookup: a new request
 // ID must not allow the same accounting input to be parsed again.
 func (db *DB) FindByInput(ctx context.Context, inputType, inputText string, excludeID int64) (Entry, error) {
-	var e Entry
-	query := `SELECT id, source, client_request_id, input_type, input_text, state, version, reconcile_misses, draft_json, error_code, error_message, created_at, updated_at FROM entries WHERE input_type=? AND TRIM(input_text)=?`
+	query := `SELECT ` + entryColumns + ` FROM entries WHERE input_type=? AND TRIM(input_text)=? AND book_id=''`
 	args := []any{inputType, inputText}
 	if excludeID > 0 {
 		query += ` AND id<>?`
 		args = append(args, excludeID)
 	}
 	query += ` ORDER BY id ASC LIMIT 1`
-	err := db.sql.QueryRowContext(ctx, query, args...).Scan(&e.ID, &e.Source, &e.ClientRequestID, &e.InputType, &e.InputText, &e.State, &e.Version, &e.ReconcileMisses, &e.DraftJSON, &e.ErrorCode, &e.ErrorMessage, &e.CreatedAt, &e.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Entry{}, ErrNotFound
-	}
-	return e, err
+	return scanEntry(db.sql.QueryRowContext(ctx, query, args...))
 }
 
 func (db *DB) List(ctx context.Context, state string, limit int) ([]Entry, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	query := `SELECT id, source, client_request_id, input_type, input_text, state, version, reconcile_misses, draft_json, error_code, error_message, created_at, updated_at FROM entries`
+	query := `SELECT ` + entryColumns + ` FROM entries`
 	args := []any{}
 	if state != "" {
 		query += " WHERE state=?"
@@ -194,8 +211,8 @@ func (db *DB) List(ctx context.Context, state string, limit int) ([]Entry, error
 	defer rows.Close()
 	entries := make([]Entry, 0)
 	for rows.Next() {
-		var e Entry
-		if err := rows.Scan(&e.ID, &e.Source, &e.ClientRequestID, &e.InputType, &e.InputText, &e.State, &e.Version, &e.ReconcileMisses, &e.DraftJSON, &e.ErrorCode, &e.ErrorMessage, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		e, err := scanEntry(rows)
+		if err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
@@ -273,15 +290,20 @@ func (db *DB) CompleteProcessing(ctx context.Context, id int64, draftJSON, nextS
 		tx.Rollback()
 		return Entry{}, err
 	}
+	entry, err := scanEntry(tx.QueryRowContext(ctx, `SELECT `+entryColumns+` FROM entries WHERE id=?`, id))
+	if err != nil {
+		tx.Rollback()
+		return Entry{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Entry{}, err
 	}
-	return db.Get(ctx, id)
+	return entry, nil
 }
 
-// RecoverInterruptedEntries finalizes work abandoned by the previous process.
-// Parsing can be retried, but a committing entry may already exist in Sui and
-// must be reconciled instead of replayed. Drafts and state events are retained.
+// RecoverInterruptedEntries restores work abandoned by the previous process.
+// Structured records interrupted during validation can return to the queue.
+// Committing records may already exist in Sui and need reconciliation.
 func (db *DB) RecoverInterruptedEntries(ctx context.Context) (int64, error) {
 	tx, err := db.sql.BeginTx(ctx, nil)
 	if err != nil {
@@ -289,18 +311,19 @@ func (db *DB) RecoverInterruptedEntries(ctx context.Context) (int64, error) {
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.QueryContext(ctx, `SELECT id, state FROM entries WHERE state IN ('processing','committing') ORDER BY id`)
+	rows, err := tx.QueryContext(ctx, `SELECT id, state, book_id FROM entries WHERE state IN ('processing','committing') ORDER BY id`)
 	if err != nil {
 		return 0, err
 	}
 	type interruptedEntry struct {
-		id    int64
-		state string
+		id     int64
+		state  string
+		bookID string
 	}
 	entries := make([]interruptedEntry, 0)
 	for rows.Next() {
 		var entry interruptedEntry
-		if err := rows.Scan(&entry.id, &entry.state); err != nil {
+		if err := rows.Scan(&entry.id, &entry.state, &entry.bookID); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -324,6 +347,9 @@ func (db *DB) RecoverInterruptedEntries(ctx context.Context) (int64, error) {
 			nextState = "uncertain"
 			errorCode = "sui_commit_interrupted"
 			errorMessage = "服务重启导致提交中断，请先核对随手记流水，不要重新提交"
+		} else if entry.bookID != "" {
+			nextState = "queued"
+			errorCode, errorMessage = "", ""
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE entries SET state=?, error_code=?, error_message=?, reconcile_misses=0, version=version+1, updated_at=? WHERE id=? AND state=?`, nextState, errorCode, errorMessage, now, entry.id, entry.state)
 		if err != nil {
@@ -407,15 +433,15 @@ func (db *DB) ListManual(ctx context.Context, limit int) ([]Entry, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT id, source, client_request_id, input_type, input_text, state, version, reconcile_misses, draft_json, error_code, error_message, created_at, updated_at FROM entries WHERE state IN ('pending_submission','needs_confirmation','rejected','uncertain') ORDER BY id DESC LIMIT ?`, limit)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+entryColumns+` FROM entries WHERE state IN ('pending_submission','needs_confirmation','rejected','uncertain') ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	entries := make([]Entry, 0)
 	for rows.Next() {
-		var e Entry
-		if err := rows.Scan(&e.ID, &e.Source, &e.ClientRequestID, &e.InputType, &e.InputText, &e.State, &e.Version, &e.ReconcileMisses, &e.DraftJSON, &e.ErrorCode, &e.ErrorMessage, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		e, err := scanEntry(rows)
+		if err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
@@ -507,6 +533,14 @@ func (db *DB) RecordReconcileMiss(ctx context.Context, id int64) (Entry, error) 
 }
 
 func (db *DB) SetState(ctx context.Context, id int64, from, to, code, message string) (Entry, error) {
+	return db.setState(ctx, id, 0, from, to, code, message)
+}
+
+func (db *DB) SetStateAtVersion(ctx context.Context, entry Entry, to, code, message string) (Entry, error) {
+	return db.setState(ctx, entry.ID, entry.Version, entry.State, to, code, message)
+}
+
+func (db *DB) setState(ctx context.Context, id int64, version int, from, to, code, message string) (Entry, error) {
 	// Successful transitions keep their explanation in the event history, not
 	// in the entry's current error fields.
 	errorCode, errorMessage := code, message
@@ -518,7 +552,13 @@ func (db *DB) SetState(ctx context.Context, id int64, from, to, code, message st
 	if err != nil {
 		return Entry{}, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE entries SET state=?, error_code=?, error_message=?, reconcile_misses=CASE WHEN ?='committed' THEN 0 ELSE reconcile_misses END, version=version+1, updated_at=? WHERE id=? AND state=?`, to, errorCode, errorMessage, to, now, id, from)
+	query := `UPDATE entries SET state=?, error_code=?, error_message=?, reconcile_misses=CASE WHEN ?='committed' THEN 0 ELSE reconcile_misses END, version=version+1, updated_at=? WHERE id=? AND state=?`
+	args := []any{to, errorCode, errorMessage, to, now, id, from}
+	if version > 0 {
+		query += ` AND version=?`
+		args = append(args, version)
+	}
+	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		tx.Rollback()
 		return Entry{}, err
