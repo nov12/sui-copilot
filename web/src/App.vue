@@ -486,11 +486,9 @@ const providerLabel = computed(() => {
   return 'OpenRouter'
 })
 const customProvider = computed(() => settingsForm.llm_provider === 'custom')
-const providerBaseURLHint = computed(() => {
-  if (settingsForm.llm_provider === 'openai') return '默认：https://api.openai.com/v1'
-  if (settingsForm.llm_provider === 'openrouter') return '默认：https://openrouter.ai/api/v1'
-  return '程序会在此地址后追加 /chat/completions；也会尝试追加 /models 同步模型。'
-})
+const providerBaseURL = computed(() => settingsForm.llm_provider === 'openai'
+  ? 'https://api.openai.com/v1'
+  : 'https://openrouter.ai/api/v1')
 
 function changeProvider() {
   models.value = []
@@ -1059,76 +1057,129 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="settingsOpen" class="config-overlay">
         <section class="card config-dialog" role="dialog" aria-modal="true" aria-labelledby="config-title">
-          <div class="section-title"><div><h2 id="config-title">配置</h2><p class="hint">普通配置可读取；API Key 只允许写入，不会从服务端回显。</p></div><button type="button" class="close-action" aria-label="关闭配置" title="关闭" @click="settingsOpen = false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" /></svg></button></div>
-        <div class="sui-session-settings">
-          <div><strong>随手记账号</strong><p class="field-hint" role="status">{{ suiSessionLabel }}</p></div>
-          <div class="sui-session-actions">
-            <button type="button" class="secondary" :disabled="suiSessionChecking" @click="checkSuiSession">检查连接</button>
-            <button type="button" class="secondary" :disabled="suiSessionChecking" @click="suiLoginOpen = true">{{ suiSessionState === 'sui_session_not_configured' || suiSessionState === 'unavailable' ? '登录随手记' : '重新登录' }}</button>
+          <div class="section-title">
+            <h2 id="config-title">配置</h2>
+            <button type="button" class="close-action" aria-label="关闭配置" title="关闭" @click="settingsOpen = false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
           </div>
-        </div>
-        <div class="form-grid">
-          <div class="form-field">
-            <div class="field-label-row">
-              <label for="target-book" class="field-label">目标账簿</label>
-              <button type="button" class="link model-sync-link" :disabled="settingsBusy || suiLoginRequired || !books.some(book => book.name === settingsForm.sui_book_name)" @click="syncSelectedBook">同步当前账簿分类</button>
-            </div>
-            <select id="target-book" v-model="settingsForm.sui_book_name" :disabled="!books.length" @change="selectBook">
-              <option value="" disabled>{{ books.length ? '请选择账簿' : '请先同步账簿' }}</option>
-              <option v-for="(book, index) in books" :key="`${book.name}-${index}`" :value="book.name">{{ book.name }}{{ book.current ? '（当前）' : '' }}</option>
-            </select>
-            <p v-if="suiSessionState === 'authenticated' && books.length && !ledgerReady" class="field-hint" role="status">请确认目标账簿，再同步当前账簿分类。</p>
-          </div>
-          <label class="form-field">已入账记录保留时限<select v-model="settingsForm.cleanup_retention_days" :disabled="settingsBusy || cleanupBusy">
-            <option v-for="option in cleanupRetentionOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select><span class="field-hint">后台每天自动清理超期的已入账记录；待人工处理的记录不会被清理。永久只关闭自动删除。</span></label>
-          <div class="form-field cleanup-field"><span class="field-label">本地记录清理</span><div class="cleanup-action-row"><button type="button" class="secondary compact-action" :disabled="settingsBusy || cleanupBusy" @click="cleanupEntries">{{ cleanupBusy ? '清理中…' : '立即清理已过期记录' }}</button><span class="field-hint">按已保存的保留时限执行，并回收 SQLite 空间。</span></div></div>
-          <label class="form-field">AI 服务商<select v-model="settingsForm.llm_provider" @change="changeProvider">
-            <option value="openai">OpenAI</option>
-            <option value="openrouter">OpenRouter</option>
-            <option value="custom">自定义（OpenAI-compatible）</option>
-          </select></label>
-          <label class="form-field">API Key<input v-model="secretForm.llm_api_key" type="password" autocomplete="new-password" placeholder="留空保持不变；切换服务商时必须输入"><span class="field-hint">{{ providerLabel }} 当前状态：{{ secretStatus.llm_api_key ? '已配置' : '未配置' }}</span></label>
-          <label v-if="customProvider" class="form-field">API Base URL<input v-model="settingsForm.llm_base_url" type="url" placeholder="例如：https://example.com/v1"><span class="field-hint">{{ providerBaseURLHint }}</span></label>
-          <div v-else class="form-field"><span class="field-label">API Base URL</span><span class="field-hint">{{ providerBaseURLHint }}</span></div>
-          <div class="model-picker full-width">
-            <div class="field-label-row">
-              <label class="field-label" for="llm-model">模型</label>
-              <button type="button" class="link model-sync-link" :disabled="settingsBusy" @click="refreshModels">同步模型列表</button>
-            </div>
-            <div class="model-input-wrap">
-              <input id="llm-model" v-model="modelInput" type="search" :class="{ 'model-input-with-hint': models.length && settingsForm.llm_model && !modelPickerActive }" @focus="beginModelSearch" @blur="closeModelSearch" placeholder="可直接输入模型 ID，或同步后搜索">
-              <span v-if="models.length && settingsForm.llm_model && !modelPickerActive" class="model-input-hint" aria-hidden="true">点击输入框可重新搜索</span>
-              <div v-if="modelPickerActive && modelMatches.length" class="model-hints">
-                <button v-for="model in modelMatches" :key="model.id" type="button" class="model-hint" @mousedown.prevent @click="chooseModel(model)">
-                  <span>{{ model.name || model.id }}</span><small>{{ model.id }}</small>
-                </button>
+          <div class="general-settings">
+            <section class="config-group" aria-labelledby="ledger-settings-title">
+              <h3 id="ledger-settings-title" class="config-group-title">随手记账号与账簿</h3>
+              <div class="config-account-row">
+                <div class="config-account-status">
+                  <span class="field-label">随手记账号</span>
+                  <p class="field-hint" :class="{ 'session-connected': suiSessionState === 'authenticated' && !suiSessionChecking }" role="status">{{ suiSessionState === 'authenticated' && !suiSessionChecking ? '已登录' : suiSessionLabel }}</p>
+                </div>
+                <div class="sui-session-actions">
+                  <button type="button" class="secondary compact-action" :disabled="suiSessionChecking" @click="checkSuiSession">检查连接</button>
+                  <button type="button" class="secondary compact-action" :disabled="suiSessionChecking" @click="suiLoginOpen = true">{{ suiSessionState === 'sui_session_not_configured' || suiSessionState === 'unavailable' ? '登录随手记' : '重新登录' }}</button>
+                </div>
               </div>
+              <div class="form-field">
+                <label for="target-book" class="field-label">目标账簿</label>
+                <div class="config-book-controls">
+                  <select id="target-book" v-model="settingsForm.sui_book_name" :disabled="!books.length" @change="selectBook">
+                    <option value="" disabled>{{ books.length ? '请选择账簿' : '请先同步账簿' }}</option>
+                    <option v-for="(book, index) in books" :key="`${book.name}-${index}`" :value="book.name">{{ book.name }}{{ book.current ? '（当前）' : '' }}</option>
+                  </select>
+                  <button type="button" class="secondary config-control" :disabled="settingsBusy || suiLoginRequired" @click="syncBooks">同步账簿列表</button>
+                  <button type="button" class="secondary config-control" :disabled="settingsBusy || suiLoginRequired || !books.some(book => book.name === settingsForm.sui_book_name)" @click="syncSelectedBook">同步当前账簿分类</button>
+                </div>
+                <p v-if="suiSessionState === 'authenticated' && books.length && !ledgerReady" class="field-hint" role="status">请确认目标账簿，再同步当前账簿分类。</p>
+              </div>
+              <div v-if="syncedMetadata" class="synced-data">
+                <div class="metadata-heading">
+                  <button type="button" class="metadata-disclosure" :aria-label="settingsMetadataExpanded ? '收起账本资料' : '展开账本资料'" :aria-expanded="settingsMetadataExpanded" @click="toggleSettingsMetadataExpanded"><span class="toggle-chevron" :class="{ expanded: settingsMetadataExpanded }" aria-hidden="true"></span></button>
+                  <div>
+                    <h4>已同步账簿资料</h4>
+                    <div class="metadata-sync-info">
+                      <span class="field-hint">共 {{ books.length }} 个账本 · 账本资料同步于 <Transition name="time-fade" mode="out-in"><span :key="syncedMetadata.fetchedAt" class="synced-time">{{ formatBrowserDateTime(syncedMetadata.fetchedAt) }}</span></Transition></span>
+                      <span class="field-hint">当前账簿：{{ syncedMetadata.currentBook.name }}<template v-if="booksUpdatedAt"> · 账本列表同步于 <Transition name="time-fade" mode="out-in"><span :key="booksUpdatedAt" class="synced-time">{{ formatBrowserDateTime(booksUpdatedAt) }}</span></Transition></template></span>
+                    </div>
+                  </div>
+                </div>
+                <template v-if="settingsMetadataExpanded">
+                  <div class="category-columns">
+                    <div><h4>支出分类（{{ syncedMetadata.categories.expense.length }}）</h4><p class="field-hint">一级分类仅用于分组，记账必须选择二级分类。</p><div class="category-tree"><div v-for="group in expenseCategoryGroups" :key="`expense-group-${group.parent.id}`" class="category-group"><div class="category-parent" :class="{ 'category-leaf': isLeafCategory(group.parent) }"><span>{{ group.parent.name }}</span><small>{{ isLeafCategory(group.parent) ? '二级分类' : '一级分类（不可直接记账）' }}</small></div><ul v-if="group.children.length" class="category-children"><li v-for="item in group.children" :key="`expense-${item.id}`" class="category-child"><span>↳ {{ item.name }}</span><small>二级分类</small></li></ul></div></div></div>
+                    <div><h4>收入分类（{{ syncedMetadata.categories.income.length }}）</h4><p class="field-hint">一级分类仅用于分组，记账必须选择二级分类。</p><div class="category-tree"><div v-for="group in incomeCategoryGroups" :key="`income-group-${group.parent.id}`" class="category-group"><div class="category-parent" :class="{ 'category-leaf': isLeafCategory(group.parent) }"><span>{{ group.parent.name }}</span><small>{{ isLeafCategory(group.parent) ? '二级分类' : '一级分类（不可直接记账）' }}</small></div><ul v-if="group.children.length" class="category-children"><li v-for="item in group.children" :key="`income-${item.id}`" class="category-child"><span>↳ {{ item.name }}</span><small>二级分类</small></li></ul></div></div></div>
+                  </div>
+                  <div class="metadata-extra-columns"><div><h4>商家（{{ syncedMetadata.stores.length }}）</h4><ul><li v-for="item in syncedMetadata.stores" :key="`store-${item.id}`">{{ item.name }}</li></ul></div><div><h4>账户（{{ syncedMetadata.accounts.length }}）</h4><ul><li v-for="item in syncedMetadata.accounts" :key="`account-${item.id}`">{{ item.name }}</li></ul></div><div><h4>项目（{{ syncedMetadata.projects.length }}）</h4><ul><li v-for="item in syncedMetadata.projects" :key="`project-${item.id}`">{{ item.name }}</li></ul></div><div><h4>成员（{{ syncedMetadata.members.length }}）</h4><ul><li v-for="item in syncedMetadata.members" :key="`member-${item.id}`">{{ item.name }}</li></ul></div></div>
+                </template>
+              </div>
+            </section>
+
+            <section class="config-group" aria-labelledby="model-settings-title">
+              <h3 id="model-settings-title" class="config-group-title">AI 解析</h3>
+              <div class="form-grid">
+                <label class="form-field">
+                  <span class="field-label">AI 服务商</span>
+                  <select v-model="settingsForm.llm_provider" @change="changeProvider">
+                    <option value="openai">OpenAI</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="custom">自定义（OpenAI-compatible）</option>
+                  </select>
+                </label>
+                <label v-if="customProvider" class="form-field">
+                  <span class="field-label">模型服务地址</span>
+                  <input v-model="settingsForm.llm_base_url" type="url" placeholder="例如：https://example.com/v1">
+                  <span class="field-hint">解析时追加 /chat/completions，同步模型时追加 /models。</span>
+                </label>
+                <div v-else class="form-field">
+                  <span class="field-label">模型服务地址</span>
+                  <code class="config-readonly">{{ providerBaseURL }}</code>
+                </div>
+                <label class="form-field">
+                  <span class="field-label">模型服务 API Key</span>
+                  <input v-model="secretForm.llm_api_key" type="password" autocomplete="new-password" placeholder="留空保持原值">
+                  <span class="field-hint">{{ providerLabel }} 当前状态：{{ secretStatus.llm_api_key ? '已配置' : '未配置' }}</span>
+                </label>
+                <div class="form-field model-picker">
+                  <div class="field-label-row">
+                    <label class="field-label" for="llm-model">模型</label>
+                    <button type="button" class="link model-sync-link" :disabled="settingsBusy" @click="refreshModels">同步模型列表</button>
+                  </div>
+                  <div class="model-input-wrap">
+                    <input id="llm-model" v-model="modelInput" type="search" @focus="beginModelSearch" @blur="closeModelSearch" placeholder="输入模型 ID，或同步后搜索">
+                    <div v-if="modelPickerActive && modelMatches.length" class="model-hints">
+                      <button v-for="model in modelMatches" :key="model.id" type="button" class="model-hint" @mousedown.prevent @click="chooseModel(model)"><span>{{ model.name || model.id }}</span><small>{{ model.id }}</small></button>
+                    </div>
+                  </div>
+                  <span v-if="models.length" class="field-hint">已保存模型列表，共 {{ models.length }} 个模型{{ modelCatalogUpdatedAt ? ` · 同步于 ${formatBrowserDateTime(modelCatalogUpdatedAt)}` : '' }}</span>
+                  <p v-if="modelPickerActive && modelQuery && models.length && !modelMatches.length" class="field-hint">没有匹配的模型。</p>
+                </div>
+                <div class="form-field prompt-editor full-width">
+                  <div class="field-label-row">
+                    <label for="llm-prompt" class="field-label">AI 解析补充 prompt</label>
+                    <button type="button" class="link model-sync-link" :disabled="basePromptBusy" @click="toggleBasePrompt">{{ basePromptOpen ? '收起基础 prompt' : '预览基础 prompt' }}</button>
+                  </div>
+                  <textarea id="llm-prompt" v-model="settingsForm.llm_prompt" rows="3" placeholder="例如：备注保留原始地点和同行人。"></textarea>
+                  <div v-if="basePromptOpen" class="prompt-preview"><div class="prompt-preview-title">基础 prompt · 只读</div><pre>{{ basePrompt }}</pre></div>
+                  <p v-if="basePromptMessage" class="field-hint prompt-preview-error">{{ basePromptMessage }}</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="config-group" aria-labelledby="records-settings-title">
+              <h3 id="records-settings-title" class="config-group-title">本地记录</h3>
+              <div class="form-grid">
+                <label class="form-field">
+                  <span class="field-label">已入账记录保留时限</span>
+                  <select v-model="settingsForm.cleanup_retention_days" :disabled="settingsBusy || cleanupBusy">
+                    <option v-for="option in cleanupRetentionOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                  </select>
+                  <span class="field-hint">每天自动清理超过保留时限的已入账记录。</span>
+                </label>
+                <div class="form-field">
+                  <span class="field-label">本地记录清理</span>
+                  <div><button type="button" class="secondary config-control" :disabled="settingsBusy || cleanupBusy" @click="cleanupEntries">{{ cleanupBusy ? '清理中…' : '立即清理已过期记录' }}</button></div>
+                  <p class="field-hint">按已保存的保留时限清理，并回收 SQLite 空间。</p>
+                </div>
+              </div>
+            </section>
+            <div class="config-footer">
+              <p v-if="settingsMessage" class="notice" :class="`notice-${settingsMessageKind}`" role="status">{{ settingsMessage }}</p>
+              <button type="button" :disabled="settingsBusy" @click="saveSettings">保存配置</button>
             </div>
-            <span v-if="models.length" class="field-hint">已保存模型列表，共 {{ models.length }} 个模型{{ modelCatalogUpdatedAt ? `；同步于 ${formatBrowserDateTime(modelCatalogUpdatedAt)}` : '' }}</span>
-            <span v-else class="field-hint">模型列表同步是可选的；自定义端点不支持 /models 时可以直接填写模型 ID。</span>
-            <p v-if="modelPickerActive && modelQuery && models.length && !modelMatches.length" class="field-hint">没有匹配的模型。</p>
           </div>
-          <label class="prompt-editor full-width">
-            <div class="field-label-row"><span class="field-label">AI 解析补充 prompt</span><button type="button" class="link model-sync-link" :disabled="basePromptBusy" @click="toggleBasePrompt">{{ basePromptOpen ? '收起基础 prompt' : '预览基础 prompt' }}</button></div>
-            <textarea v-model="settingsForm.llm_prompt" rows="5" placeholder="例如：午餐优先归入食品；备注保留原始地点和同行人。"></textarea>
-            <span class="field-hint">这里只编辑补充 prompt。基础 prompt 由系统生成，包含当前账簿分类和 JSON 输出规则，不能编辑。</span>
-            <div v-if="basePromptOpen" class="prompt-preview"><div class="prompt-preview-title">基础 prompt · 只读</div><pre>{{ basePrompt }}</pre></div>
-            <p v-if="basePromptMessage" class="field-hint prompt-preview-error">{{ basePromptMessage }}</p>
-          </label>
-        </div>
-        <div class="actions config-actions"><button class="secondary compact-action" :disabled="settingsBusy || suiLoginRequired" @click="syncBooks">同步随手记账本列表</button><button class="save-config" :disabled="settingsBusy" @click="saveSettings">保存配置</button></div>
-        <div v-if="syncedMetadata" class="synced-data">
-          <div class="section-title metadata-section-title"><div class="metadata-heading"><button type="button" class="metadata-disclosure" :aria-label="settingsMetadataExpanded ? '收起账本资料' : '展开账本资料'" :aria-expanded="settingsMetadataExpanded" @click="toggleSettingsMetadataExpanded"><span class="toggle-chevron" :class="{ expanded: settingsMetadataExpanded }" aria-hidden="true"></span></button><div><h3>已同步账本资料</h3><div class="metadata-sync-info"><span class="field-hint">共 {{ books.length }} 个账本 · 账本资料同步于 <Transition name="time-fade" mode="out-in"><span :key="syncedMetadata.fetchedAt" class="synced-time">{{ formatBrowserDateTime(syncedMetadata.fetchedAt) }}</span></Transition></span><span class="field-hint">当前账簿：{{ syncedMetadata.currentBook.name }}<template v-if="booksUpdatedAt"> · 账本列表同步于 <Transition name="time-fade" mode="out-in"><span :key="booksUpdatedAt" class="synced-time">{{ formatBrowserDateTime(booksUpdatedAt) }}</span></Transition></template></span></div></div></div></div>
-          <template v-if="settingsMetadataExpanded">
-          <div class="category-columns">
-            <div><h4>支出分类（{{ syncedMetadata.categories.expense.length }}）</h4><p class="field-hint">一级分类仅用于分组，记账必须选择二级分类。</p><div class="category-tree"><div v-for="group in expenseCategoryGroups" :key="`expense-group-${group.parent.id}`" class="category-group"><div class="category-parent" :class="{ 'category-leaf': isLeafCategory(group.parent) }"><span>{{ group.parent.name }}</span><small>{{ isLeafCategory(group.parent) ? '二级分类' : '一级分类（不可直接记账）' }}</small></div><ul v-if="group.children.length" class="category-children"><li v-for="item in group.children" :key="`expense-${item.id}`" class="category-child"><span>↳ {{ item.name }}</span><small>二级分类</small></li></ul></div></div></div>
-            <div><h4>收入分类（{{ syncedMetadata.categories.income.length }}）</h4><p class="field-hint">一级分类仅用于分组，记账必须选择二级分类。</p><div class="category-tree"><div v-for="group in incomeCategoryGroups" :key="`income-group-${group.parent.id}`" class="category-group"><div class="category-parent" :class="{ 'category-leaf': isLeafCategory(group.parent) }"><span>{{ group.parent.name }}</span><small>{{ isLeafCategory(group.parent) ? '二级分类' : '一级分类（不可直接记账）' }}</small></div><ul v-if="group.children.length" class="category-children"><li v-for="item in group.children" :key="`income-${item.id}`" class="category-child"><span>↳ {{ item.name }}</span><small>二级分类</small></li></ul></div></div></div>
-          </div>
-          <div class="metadata-extra-columns"><div><h4>商家（{{ syncedMetadata.stores.length }}）</h4><ul><li v-for="item in syncedMetadata.stores" :key="`store-${item.id}`">{{ item.name }}</li></ul></div><div><h4>账户（{{ syncedMetadata.accounts.length }}）</h4><ul><li v-for="item in syncedMetadata.accounts" :key="`account-${item.id}`">{{ item.name }}</li></ul></div><div><h4>项目（{{ syncedMetadata.projects.length }}）</h4><ul><li v-for="item in syncedMetadata.projects" :key="`project-${item.id}`">{{ item.name }}</li></ul></div><div><h4>成员（{{ syncedMetadata.members.length }}）</h4><ul><li v-for="item in syncedMetadata.members" :key="`member-${item.id}`">{{ item.name }}</li></ul></div></div>
-          </template>
-        </div>
-        <p v-if="settingsMessage" class="notice" :class="`notice-${settingsMessageKind}`" role="status">{{ settingsMessage }}</p>
         </section>
       </div>
     </Teleport>
