@@ -139,6 +139,18 @@ sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
 
 如果目标账簿已切换，需要切回记录所属账簿并同步后再提交。服务在校验阶段退出时，重启后记录会重新进入队列。已经进入写入阶段的记录会恢复为 `uncertain`。
 
+### MCP
+
+在支持 **Streamable HTTP** 的 MCP 客户端中添加服务器 `http://127.0.0.1:8080/mcp`，使用 sui-copilot 的实际地址和端口。
+
+| 工具 | 用法 |
+| --- | --- |
+| `get_book_metadata` | 读取当前账簿 ID、北京时间、分类路径、账户、商家、项目和成员名称。 |
+| `submit_entry` | 接收与 `POST /api/v1/entries` 相同的参数，返回记录 ID 和状态。 |
+| `get_entry_status` | 传入 `{"entryId":42}`，查询这条结构化记录的处理状态及错误原因。 |
+
+HTTP API 和 MCP 使用相同的请求 ID 去重规则。跨设备接入沿用[安全边界](#安全边界)中的 HTTPS 反向代理与认证。代理到回环地址时，`/mcp` 的上游 `Host` 使用回环地址（例如 `127.0.0.1:8080`），以通过 MCP 的主机名检查。网页和其他接口继续使用浏览器的原始 `Host`。
+
 ## 后台维护
 
 每天凌晨 2:00（Asia/Shanghai）执行：删除本地保存时间超过 7 天的 `committed` 记录及其状态事件，然后执行 SQLite `VACUUM` 回收空间。维护不会删除 `uncertain`、`needs_confirmation` 或其他待人工处理记录。

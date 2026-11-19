@@ -22,22 +22,22 @@ var integrationOriginProtection = http.NewCrossOriginProtection()
 // Structured submissions carry accounting fields. Model confidence and warnings
 // are produced by the text parser and are not part of this request.
 type structuredEntryRequest struct {
-	ClientRequestID string          `json:"clientRequestId"`
-	BookID          string          `json:"bookId"`
-	Draft           structuredDraft `json:"draft"`
+	ClientRequestID string          `json:"clientRequestId" jsonschema:"每一笔账目的唯一请求 ID。网络重试时使用原 ID 和原请求参数。"`
+	BookID          string          `json:"bookId" jsonschema:"当前账簿的 ID，由 get_book_metadata 返回。"`
+	Draft           structuredDraft `json:"draft" jsonschema:"已经解析好的记账字段。"`
 }
 
 type structuredDraft struct {
-	Type              string `json:"type"`
-	Date              string `json:"date"`
-	Amount            string `json:"amount"`
-	CategoryName      string `json:"categoryName"`
-	AccountName       string `json:"accountName"`
-	StoreName         string `json:"storeName,omitempty"`
-	ProjectName       string `json:"projectName,omitempty"`
-	MemberName        string `json:"memberName,omitempty"`
-	Memo              string `json:"memo,omitempty"`
-	NeedsConfirmation bool   `json:"needsConfirmation,omitempty"`
+	Type              string `json:"type" jsonschema:"expense 表示支出，income 表示收入。"`
+	Date              string `json:"date" jsonschema:"北京时间，格式为 YYYY-MM-DD HH:mm。"`
+	Amount            string `json:"amount" jsonschema:"正数金额字符串，最多两位小数，例如 35.00。"`
+	CategoryName      string `json:"categoryName" jsonschema:"与类型对应的二级分类路径，从账簿资料中选择。"`
+	AccountName       string `json:"accountName" jsonschema:"从账簿资料中选择账户名称。"`
+	StoreName         string `json:"storeName,omitempty" jsonschema:"账簿里的商家名称。"`
+	ProjectName       string `json:"projectName,omitempty" jsonschema:"账簿里的项目名称。"`
+	MemberName        string `json:"memberName,omitempty" jsonschema:"账簿里的成员名称。"`
+	Memo              string `json:"memo,omitempty" jsonschema:"记账备注。"`
+	NeedsConfirmation bool   `json:"needsConfirmation,omitempty" jsonschema:"为 true 时留在网页等待人工确认。"`
 }
 
 type entryStatus struct {

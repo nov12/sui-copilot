@@ -156,10 +156,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/sui/books", s.suiBooks)
 	s.mux.HandleFunc("POST /api/v1/sui/books/sync", s.syncSuiBooks)
 	s.mux.HandleFunc("POST /api/v1/sui/sync", s.syncSuiBook)
+	s.mux.Handle("/mcp", s.mcpHandler())
 	if assets, err := fs.Sub(staticFS, "static/dist/assets"); err == nil {
 		s.mux.Handle("GET /assets/", staticAssetHandler(assets))
 	}
-	s.mux.HandleFunc("GET /", s.index)
+	s.mux.HandleFunc("GET /{$}", s.index)
 }
 
 func staticAssetHandler(assets fs.FS) http.Handler {
@@ -202,10 +203,6 @@ func (s *Server) logging(next http.Handler) http.Handler {
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
 	path := "static/index.html"
 	if _, err := fs.Stat(staticFS, "static/dist/index.html"); err == nil {
 		path = "static/dist/index.html"
