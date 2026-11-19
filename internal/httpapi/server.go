@@ -157,6 +157,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/sui/books/sync", s.syncSuiBooks)
 	s.mux.HandleFunc("POST /api/v1/sui/sync", s.syncSuiBook)
 	s.mux.Handle("/mcp", s.mcpHandler())
+	for _, name := range []string{"favicon.ico", "favicon.svg"} {
+		s.mux.HandleFunc("GET /"+name, func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFileFS(w, r, staticFS, "static/icons/"+name)
+		})
+	}
 	if assets, err := fs.Sub(staticFS, "static/dist/assets"); err == nil {
 		s.mux.Handle("GET /assets/", staticAssetHandler(assets))
 	}

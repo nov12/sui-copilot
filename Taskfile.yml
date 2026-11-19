@@ -55,7 +55,7 @@ tasks:
       - test -s web/dist/index.html
       - test -f .task/web-ui-build.hash
       - |
-        current=$(find ./web \
+        current=$(find ./web ./internal/httpapi/static/icons \
           -path './web/node_modules' -prune -o \
           -path './web/dist' -prune -o \
           -type f -print | sort | xargs cat | \
@@ -70,7 +70,7 @@ tasks:
         test -d web/dist/assets || { echo "frontend build did not produce web/dist/assets" >&2; exit 1; }
       - |
         set -eu
-        current=$(find ./web \
+        current=$(find ./web ./internal/httpapi/static/icons \
           -path './web/node_modules' -prune -o \
           -path './web/dist' -prune -o \
           -type f -print | sort | xargs cat | \
@@ -147,6 +147,7 @@ tasks:
       - cmd/**/*.go
       - internal/**/*.go
       - internal/**/*.sql
+      - internal/httpapi/static/icons/*
       - web/index.html
       - web/package.json
       - web/package-lock.json
@@ -170,6 +171,7 @@ tasks:
       - cmd/**/*.go
       - internal/**/*.go
       - internal/**/*.sql
+      - internal/httpapi/static/icons/*
       - web/index.html
       - web/package.json
       - web/package-lock.json
