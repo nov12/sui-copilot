@@ -203,6 +203,23 @@ func (db *DB) List(ctx context.Context, state string, limit int) ([]Entry, error
 	return entries, rows.Err()
 }
 
+func (db *DB) QueuedEntryIDs(ctx context.Context) ([]int64, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT id FROM entries WHERE state='queued' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (db *DB) UpdateDraft(ctx context.Context, id int64, version int, draftJSON string) (Entry, error) {
 	return db.UpdateDraftState(ctx, id, version, "", draftJSON)
 }

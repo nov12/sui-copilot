@@ -56,22 +56,15 @@ func (s *Server) runProcessingQueue() {
 			s.processingMu.Unlock()
 			return
 		}
-		job := s.processingQueue[0]
 		s.processingMu.Unlock()
 		if paused, err := s.processingPaused(); err != nil {
 			s.logger.Error("read processing pause state failed", "error", err)
 		} else if paused {
-			// The pause switch only gates taking new jobs; in-flight work and
-			// manual endpoints are unaffected. Requeue and recheck shortly.
-			s.processingMu.Lock()
-			s.processingQueue = append([]processingJob{job}, s.processingQueue...)
-			s.processingMu.Unlock()
-			if !sleepContext(context.Background(), processingPausePollInterval) {
-				return
-			}
+			time.Sleep(processingPausePollInterval)
 			continue
 		}
 		s.processingMu.Lock()
+		job := s.processingQueue[0]
 		s.processingQueue = s.processingQueue[1:]
 		ctx, cancel := context.WithTimeout(context.Background(), backgroundProcessingTimeout)
 		s.processingCancel[job.id] = cancel
@@ -97,20 +90,6 @@ func (s *Server) processingPaused() (bool, error) {
 	return value == "true", nil
 }
 
-// sleepContext pauses the worker for the given duration. It reports false
-// only when the process should stop; this server runs until exit, so it
-// always waits the full duration.
-func sleepContext(ctx context.Context, duration time.Duration) bool {
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}
-
 func (s *Server) cancelProcessing(id int64) {
 	s.processingMu.Lock()
 	cancel := s.processingCancel[id]
@@ -121,15 +100,13 @@ func (s *Server) cancelProcessing(id int64) {
 }
 
 func (s *Server) enqueueQueuedEntries() {
-	entries, err := s.db.List(context.Background(), accounting.StateQueued, 200)
+	ids, err := s.db.QueuedEntryIDs(context.Background())
 	if err != nil {
 		s.logger.Error("load queued entries failed", "error", err)
 		return
 	}
-	// List returns newest first for the web UI. Reverse the startup batch so
-	// recovery preserves the original submission order.
-	for i := len(entries) - 1; i >= 0; i-- {
-		s.enqueueProcessing(entries[i].ID)
+	for _, id := range ids {
+		s.enqueueProcessing(id)
 	}
 }
 
