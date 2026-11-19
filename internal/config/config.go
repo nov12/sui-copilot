@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -24,6 +25,7 @@ type Config struct {
 type ServerConfig struct {
 	ListenAddr string `toml:"listen_addr"`
 	DataDir    string `toml:"data_dir"`
+	PublicURL  string `toml:"public_url,omitempty"`
 }
 
 type LoggingConfig struct {
@@ -127,6 +129,10 @@ func Load(path string) (Config, error) {
 			cfg.LLM.BaseURL = ""
 		}
 	}
+	cfg.Server.PublicURL, err = NormalizePublicURL(cfg.Server.PublicURL)
+	if err != nil {
+		return cfg, fmt.Errorf("server.public_url: %w", err)
+	}
 	cfg.OpenRouter = OpenRouterConfig{}
 	Normalize(&cfg)
 	ApplyEnv(&cfg)
@@ -134,6 +140,25 @@ func Load(path string) (Config, error) {
 	// canonical writer and all runtime lookups use cfg.LLM.
 	cfg.OpenRouter = OpenRouterConfig{APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model, SupplementPrompt: cfg.LLM.SupplementPrompt}
 	return cfg, nil
+}
+
+// NormalizePublicURL validates the optional integration base URL and removes
+// trailing slashes before the API and MCP paths are appended.
+func NormalizePublicURL(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || strings.ContainsAny(value, "?#") {
+		return "", fmt.Errorf("must be an absolute HTTP or HTTPS URL without credentials, query, or fragment")
+	}
+	if port := parsed.Port(); port != "" {
+		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+			return "", fmt.Errorf("port must be between 0 and 65535")
+		}
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
 // Normalize applies the provider defaults and converts the legacy in-memory

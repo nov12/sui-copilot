@@ -1152,6 +1152,55 @@ func TestCleanupRetentionSettingsAndManualCleanup(t *testing.T) {
 	}
 }
 
+func TestPublicURLSettingsPersistAcrossReload(t *testing.T) {
+	db, err := store.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	configPath := t.TempDir() + "/sui-copilot.toml"
+	cfg := config.Default()
+	cfg.LLM = config.LLMConfig{Provider: config.ProviderCustom}
+	server := NewServerWithConfigPath(db, slog.Default(), cfg, configPath)
+
+	patch := func(body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPatch, "/api/v1/settings", strings.NewReader(body)))
+		return response
+	}
+	const publicURL = "https://book.example.test:8443/finance"
+	var writes sync.WaitGroup
+	for _, body := range []string{`{"server_public_url":" ` + publicURL + `/ "}`, `{"cleanup_retention_days":"15"}`} {
+		writes.Go(func() {
+			if response := patch(body); response.Code != http.StatusOK {
+				t.Errorf("settings save failed: %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+	writes.Wait()
+
+	if response := patch(`{"server_public_url":"https://user:secret@book.example.test"}`); response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "server_public_url_invalid") || strings.Contains(response.Body.String(), "secret") {
+		t.Fatalf("invalid address response: %d %s", response.Code, response.Body.String())
+	}
+	loaded, err := config.Load(configPath)
+	if err != nil || loaded.Server.PublicURL != publicURL || loaded.Server.ListenAddr != cfg.Server.ListenAddr || loaded.EffectiveCleanupRetentionDays() != 15 {
+		t.Fatalf("reload did not preserve independent settings updates: server=%+v cleanup=%d err=%v", loaded.Server, loaded.EffectiveCleanupRetentionDays(), err)
+	}
+	server = NewServerWithConfigPath(db, slog.Default(), loaded, configPath)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"server_public_url":"`+publicURL+`"`) {
+		t.Fatalf("saved address was not restored: %d %s", response.Code, response.Body.String())
+	}
+	if response := patch(`{"server_public_url":""}`); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"server_public_url":""`) {
+		t.Fatalf("could not clear saved address: %d %s", response.Code, response.Body.String())
+	}
+	loaded, err = config.Load(configPath)
+	if err != nil || loaded.Server.PublicURL != "" {
+		t.Fatalf("cleared address persisted incorrectly: %+v err=%v", loaded.Server, err)
+	}
+}
+
 func TestSettingsPersistPublicValuesToConfigFile(t *testing.T) {
 	db, err := store.Open(t.TempDir() + "/test.db")
 	if err != nil {

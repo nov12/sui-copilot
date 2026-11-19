@@ -1,10 +1,12 @@
 # Copy beside the sui-copilot binary as sui-copilot.toml.
 # Sign in to Sui and configure the model service in the web UI.
-# The service writes the selected book and LLM settings back to this file.
+# The service writes web settings back to this file.
 
 [server]
 listen_addr = "127.0.0.1:8080"
 data_dir = "./data"
+# Optional base URL used in copied HTTP API and MCP examples.
+# public_url = "https://book.example.com"
 
 [logging]
 # debug / info / warn / error; defaults to info.

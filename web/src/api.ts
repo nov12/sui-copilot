@@ -32,6 +32,7 @@ export interface Entry {
 }
 
 export interface Settings {
+  server_public_url: string
   sui_book_name: string
   cleanup_retention_days: string
   llm_provider: 'openai' | 'openrouter' | 'custom'

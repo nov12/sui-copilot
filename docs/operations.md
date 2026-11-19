@@ -24,6 +24,8 @@
 
 通过 `task dev` 使用其他配置文件时设置 `SUI_COPILOT_CONFIG`；`task dev` 默认使用 `bin/sui-copilot.toml`。
 
+在「配置 → 接口接入」填写外部客户端可访问的地址，例如 `https://book.example.com`。服务把它保存到 TOML 的 `[server].public_url`，网页的 HTTP API 命令和 MCP 配置都使用这个地址。留空时使用当前网页地址。地址可带端口和代理路径前缀。使用前缀时，代理需将相应请求转发至服务根路径。
+
 日志等级在配置文件中设置：
 
 ```toml
@@ -92,7 +94,7 @@ sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
 - `POST /api/v1/entries/reconcile-uncertain` 批量核对不确定记录；页面“刷新并核对”会调用它，服务也会每 5 分钟自动调用一次。页面对待核对记录每 15 秒读取本地状态，并在后台核对完成后更新详情；轮询不会额外请求随手记。
 - `POST /api/v1/entries/{id}/confirm` 确认处理；`POST /api/v1/entries/{id}/resolve` 人工处理 `uncertain` 或 `rejected` 记录：核对随手记流水后指定 `result` 为 `committed`（确认已入账）或 `rejected`（确认未入账），可附 `note` 说明依据。`DELETE /api/v1/entries/{id}` 删除记录。
 - `POST /api/v1/processing/pause` 与 `POST /api/v1/processing/resume` 暂停和恢复后台解析队列。暂停只影响后台领取新任务：已在解析中的记录会照常完成，人工确认提交不受影响；队列里的待解析记录保留，恢复后按原顺序继续。
-- `GET/PATCH /api/v1/settings` 管理网页配置，包括模型服务商、API Base URL、模型和解析补充 prompt。随手记地址只在 TOML 中配置。模型服务 API Key 只允许写入，GET 返回“已配置”状态。网页保存的配置直接原子写入启动时使用的 TOML 文件，文件权限为 owner-only。
+- `GET/PATCH /api/v1/settings` 管理网页配置，包括对外访问地址 `server_public_url`、模型服务商、模型服务地址、模型和解析补充 prompt。随手记地址只在 TOML 中配置。模型服务 API Key 只允许写入，GET 返回“已配置”状态。网页保存的配置直接原子写入启动时使用的 TOML 文件，文件权限为 owner-only。
 - `GET /api/v1/sui/session` 检查当前会话。网页打开时检查一次，已保存会话使用账簿首页验证并尝试恢复短会话。成功时返回 `authenticated`，长期会话失效时返回 `401 sui_session_expired`。
 - `POST /api/v1/sui/session` 接受同源 JSON 请求 `{"account":"…","password":"…"}`。成功后返回当前账簿、账簿列表以及现有分类快照是否仍可使用。登录响应不缓存。反向代理需保留浏览器使用的原始 `Host`。
 - `GET /api/v1/llm/models`（`/api/v1/models` 和旧的 `/api/v1/openrouter/models` 兼容别名）读取当前模型服务缓存的模型目录；`POST /api/v1/llm/models/sync` 同步当前服务商的 `/models` 列表。自定义端点不支持 `/models` 时仍可手填模型 ID。
@@ -141,7 +143,7 @@ sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
 
 ### MCP
 
-在支持 **Streamable HTTP** 的 MCP 客户端中添加服务器 `http://127.0.0.1:8080/mcp`，使用 sui-copilot 的实际地址和端口。
+在支持 **Streamable HTTP** 的 MCP 客户端中添加服务器。网页「配置 → 接口接入 → MCP」提供可复制的地址、Codex 配置、Claude Code 命令和工具参数。本机默认地址为 `http://127.0.0.1:8080/mcp`。
 
 | 工具 | 用法 |
 | --- | --- |

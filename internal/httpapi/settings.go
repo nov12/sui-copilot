@@ -22,6 +22,7 @@ import (
 )
 
 var publicSettingKeys = map[string]bool{
+	"server_public_url":      true,
 	"sui_book_name":          true,
 	"cleanup_retention_days": true,
 	"llm_provider":           true,
@@ -44,7 +45,8 @@ var errAccountNotFound = errors.New("account was not found in current book")
 var errInvalidBookField = errors.New("当前账簿中没有唯一匹配的值")
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	settings, secrets := s.settingsResponse()
+	w.Header().Set("Cache-Control", "no-store")
+	settings, secrets := settingsResponse(s.runtimeConfig())
 	writeJSON(w, http.StatusOK, map[string]any{"settings": settings, "secrets": secrets})
 }
 
@@ -54,14 +56,28 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", "请求格式不正确")
 		return
 	}
+	updateLLM := false
 	for key := range values {
 		if !publicSettingKeys[key] && !secretSettingKeys[key] {
 			writeError(w, http.StatusBadRequest, "invalid_setting", "包含不支持的设置项")
 			return
 		}
+		updateLLM = updateLLM || strings.HasPrefix(key, "llm_") || strings.HasPrefix(key, "openrouter_")
 	}
 
-	cfg := s.runtimeConfig()
+	// Merge each PATCH with the latest settings, including saves from the two
+	// configuration tabs that can arrive concurrently.
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	cfg := s.config
+	if value, ok := values["server_public_url"]; ok {
+		publicURL, err := config.NormalizePublicURL(value)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "server_public_url_invalid", "请输入完整的 HTTP 或 HTTPS 地址，地址中请勿包含账号、密码、查询参数或片段。")
+			return
+		}
+		cfg.Server.PublicURL = publicURL
+	}
 	if value, ok := values["cleanup_retention_days"]; ok {
 		retentionDays, err := parseCleanupRetentionDays(value)
 		if err != nil {
@@ -70,70 +86,68 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg.Cleanup.RetentionDays = &retentionDays
 	}
-	llmConfig := cfg.EffectiveLLM()
-	oldProvider := strings.ToLower(strings.TrimSpace(llmConfig.Provider))
-	if value, ok := firstSetting(values, "llm_provider"); ok {
-		llmConfig.Provider = strings.ToLower(strings.TrimSpace(value))
-	}
-	providerChanged := oldProvider != strings.ToLower(strings.TrimSpace(llmConfig.Provider))
-	if value, ok := firstSetting(values, "llm_base_url"); ok {
-		llmConfig.BaseURL = strings.TrimSpace(value)
-	}
-	modelSet := false
-	if value, ok := firstSetting(values, "llm_model", "openrouter_model"); ok {
-		llmConfig.Model = strings.TrimSpace(value)
-		modelSet = true
-	}
-	if value, ok := firstSetting(values, "llm_prompt", "openrouter_prompt"); ok {
-		llmConfig.SupplementPrompt = strings.TrimSpace(value)
-	}
-	apiKey, apiKeySet := firstSetting(values, "llm_api_key", "openrouter_api_key")
-	if providerChanged && (!apiKeySet || strings.TrimSpace(apiKey) == "") {
-		writeError(w, http.StatusBadRequest, "llm_api_key_required", "切换模型服务商时必须输入新的 API Key")
-		return
-	}
-	if apiKeySet && strings.TrimSpace(apiKey) != "" {
-		llmConfig.APIKey = strings.TrimSpace(apiKey)
-	}
-	if providerChanged && !modelSet {
-		llmConfig.Model = config.DefaultModel(llmConfig.Provider)
-	}
-	if strings.ToLower(strings.TrimSpace(llmConfig.Provider)) != config.ProviderCustom {
-		llmConfig.BaseURL = ""
-	}
-	if err := llmConfig.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, "llm_config_invalid", "模型服务配置无效："+err.Error())
-		return
-	}
-	cfg.LLM = llmConfig
-	cfg.OpenRouter = config.OpenRouterConfig{}
-	for key, value := range values {
-		value = strings.TrimSpace(value)
-		switch key {
-		case "sui_book_name":
-			cfg.Sui.BookName = value
+	if updateLLM {
+		llmConfig := cfg.EffectiveLLM()
+		oldProvider := strings.ToLower(strings.TrimSpace(llmConfig.Provider))
+		if value, ok := firstSetting(values, "llm_provider"); ok {
+			llmConfig.Provider = strings.ToLower(strings.TrimSpace(value))
 		}
+		providerChanged := oldProvider != strings.ToLower(strings.TrimSpace(llmConfig.Provider))
+		if value, ok := firstSetting(values, "llm_base_url"); ok {
+			llmConfig.BaseURL = strings.TrimSpace(value)
+		}
+		model, modelSet := firstSetting(values, "llm_model", "openrouter_model")
+		if modelSet {
+			llmConfig.Model = strings.TrimSpace(model)
+		} else if providerChanged {
+			llmConfig.Model = config.DefaultModel(llmConfig.Provider)
+		}
+		if value, ok := firstSetting(values, "llm_prompt", "openrouter_prompt"); ok {
+			llmConfig.SupplementPrompt = strings.TrimSpace(value)
+		}
+		apiKey, _ := firstSetting(values, "llm_api_key", "openrouter_api_key")
+		apiKey = strings.TrimSpace(apiKey)
+		if providerChanged && apiKey == "" {
+			writeError(w, http.StatusBadRequest, "llm_api_key_required", "切换模型服务商时必须输入新的 API Key")
+			return
+		}
+		if apiKey != "" {
+			llmConfig.APIKey = apiKey
+		}
+		if strings.ToLower(strings.TrimSpace(llmConfig.Provider)) != config.ProviderCustom {
+			llmConfig.BaseURL = ""
+		}
+		if err := llmConfig.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, "llm_config_invalid", "模型服务配置无效："+err.Error())
+			return
+		}
+		cfg.LLM = llmConfig
+		cfg.OpenRouter = config.OpenRouterConfig{}
+	}
+	bookName, updateBook := values["sui_book_name"]
+	if updateBook {
+		cfg.Sui.BookName = strings.TrimSpace(bookName)
 	}
 	if err := s.persistConfig(cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, "config_write_error", "写入配置文件失败")
 		return
 	}
-	if _, ok := values["sui_book_name"]; ok {
+	if updateBook {
 		if err := s.db.SaveTargetBook(r.Context(), cfg.Sui.BookName); err != nil {
 			writeError(w, http.StatusInternalServerError, "store_error", "保存目标账簿失败")
 			return
 		}
 	}
-	s.setRuntimeConfig(cfg)
-	settings, secrets := s.settingsResponse()
+	s.config = cfg
+	settings, secrets := settingsResponse(cfg)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "saved", "settings": settings, "secrets": secrets})
 }
 
-func (s *Server) settingsResponse() (map[string]string, map[string]bool) {
-	cfg := s.runtimeConfig()
+func settingsResponse(cfg config.Config) (map[string]string, map[string]bool) {
 	llmConfig := cfg.EffectiveLLM()
 	provider := strings.ToLower(strings.TrimSpace(llmConfig.Provider))
 	return map[string]string{
+		"server_public_url":      cfg.Server.PublicURL,
 		"sui_book_name":          cfg.Sui.BookName,
 		"cleanup_retention_days": strconv.Itoa(cfg.EffectiveCleanupRetentionDays()),
 		"llm_provider":           provider,
@@ -174,12 +188,6 @@ func (s *Server) runtimeConfig() config.Config {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 	return s.config
-}
-
-func (s *Server) setRuntimeConfig(cfg config.Config) {
-	s.configMu.Lock()
-	s.config = cfg
-	s.configMu.Unlock()
 }
 
 func (s *Server) persistConfig(cfg config.Config) error {

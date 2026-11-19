@@ -9,7 +9,7 @@ import (
 
 func TestLoadTOML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sui-copilot.toml")
-	content := "[server]\nlisten_addr = '127.0.0.1:9090'\ndata_dir = './runtime'\n[logging]\nlevel = 'debug'\n[sui]\nbase_url = 'https://example.test'\nbook_name = '工作账本'\n"
+	content := "[server]\nlisten_addr = '127.0.0.1:9090'\ndata_dir = './runtime'\npublic_url = 'https://book.example.test:8443/finance/'\n[logging]\nlevel = 'debug'\n[sui]\nbase_url = 'https://example.test'\nbook_name = '工作账本'\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -17,8 +17,30 @@ func TestLoadTOML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.ListenAddr != "127.0.0.1:9090" || cfg.Server.DataDir != "./runtime" || cfg.Logging.Level != "debug" || cfg.Sui.BaseURL != "https://example.test" || cfg.Sui.BookName != "工作账本" {
+	if cfg.Server.ListenAddr != "127.0.0.1:9090" || cfg.Server.DataDir != "./runtime" || cfg.Server.PublicURL != "https://book.example.test:8443/finance" || cfg.Logging.Level != "debug" || cfg.Sui.BaseURL != "https://example.test" || cfg.Sui.BookName != "工作账本" {
 		t.Fatalf("unexpected config: %+v", cfg)
+	}
+}
+
+func TestNormalizePublicURL(t *testing.T) {
+	for input, want := range map[string]string{
+		" ":                                "",
+		" https://book.example.test/ ":     "https://book.example.test",
+		"http://[::1]:8080/finance/":       "http://[::1]:8080/finance",
+		"https://book.example.test/a%2Fb/": "https://book.example.test/a%2Fb",
+	} {
+		got, err := NormalizePublicURL(input)
+		if err != nil || got != want {
+			t.Errorf("NormalizePublicURL(%q) = %q, %v; want %q", input, got, err, want)
+		}
+	}
+	for _, input := range []string{
+		"book.example.test", "ftp://book.example.test", "https://:8080", "https://book.example.test:65536", "https://user:secret@book.example.test",
+		"https://book.example.test/?", "https://book.example.test/?token=example", "https://book.example.test/#",
+	} {
+		if _, err := NormalizePublicURL(input); err == nil {
+			t.Errorf("NormalizePublicURL(%q) accepted an invalid base URL", input)
+		}
 	}
 }
 

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ApiError, api, type BookOption, type CategoryOption, type Draft, type Entry, type ModelOption, type SecretStatus, type Settings, type SuiLoginResult, type SubmitPreview, type SubmitPreviewResult, type SyncedMetadata, type UpdateStatus } from './api'
+import IntegrationSettings from './IntegrationSettings.vue'
 import SuiLoginDialog from './SuiLoginDialog.vue'
+import { copyTextToClipboard } from './clipboard'
 
 const text = ref('')
 const entries = ref<Entry[]>([])
@@ -13,6 +15,7 @@ const busy = ref(false)
 const refreshBusy = ref(false)
 const message = ref('')
 const settingsOpen = ref(false)
+const settingsTab = ref<'general' | 'integrations'>('general')
 const settingsBusy = ref(false)
 const cleanupBusy = ref(false)
 const settingsMessage = ref('')
@@ -56,7 +59,7 @@ const modelPickerActive = ref(false)
 const books = ref<BookOption[]>([])
 const booksUpdatedAt = ref('')
 const syncedMetadata = ref<SyncedMetadata | null>(null)
-const settingsForm = reactive<Settings>({ sui_book_name: '', cleanup_retention_days: '7', llm_provider: 'openrouter', llm_base_url: '', llm_model: '', llm_prompt: '' })
+const settingsForm = reactive<Omit<Settings, 'server_public_url'>>({ sui_book_name: '', cleanup_retention_days: '7', llm_provider: 'openrouter', llm_base_url: '', llm_model: '', llm_prompt: '' })
 const secretForm = reactive({ llm_api_key: '' })
 const savedProvider = ref<Settings['llm_provider']>('openrouter')
 const suiSessionIssues = {
@@ -235,6 +238,11 @@ function formatBrowserDateTime(value: string): string {
   return `${year}/${month}/${day} ${hour}:${minute}:${second} ${timezoneLabel}`
 }
 
+function openSettings() {
+  settingsTab.value = 'general'
+  settingsOpen.value = true
+}
+
 function notifySync(kind: 'success' | 'error', text: string) {
   settingsMessageKind.value = kind
   settingsMessage.value = text
@@ -276,10 +284,10 @@ function onSuiLogin(result: SuiLoginResult) {
     syncedMetadata.value = null
     basePromptOpen.value = false
     basePrompt.value = ''
-    settingsOpen.value = true
+    openSettings()
   }
   if (!result.updatedAt) {
-    settingsOpen.value = true
+    openSettings()
     feedback.push('账簿列表尚未写入本地，请手动同步列表。')
   }
   if (settingsOpen.value) notifySync(result.updatedAt ? 'success' : 'error', feedback.join(''))
@@ -683,33 +691,6 @@ function isMobileViewport(): boolean {
   return window.innerWidth <= 760 || document.documentElement.clientWidth <= 760 || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
 }
 
-async function copyTextToClipboard(value: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(value)
-      return true
-    } catch {
-      // Fall back for browsers or contexts where the Clipboard API is unavailable.
-    }
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = value
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  let copied = false
-  try {
-    copied = document.execCommand('copy')
-  } catch {
-    copied = false
-  }
-  textarea.remove()
-  return copied
-}
-
 async function submit() {
   const inputText = text.value.trim()
   if (!inputText || busy.value) return
@@ -1046,7 +1027,7 @@ onUnmounted(() => {
         </div>
         <h1>随手记记账助手</h1>
       </div>
-      <div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="settingsOpen = true">配置</button></div>
+      <div class="header-actions"><span class="pill">单用户</span><button class="secondary config-trigger" @click="openSettings">配置</button></div>
     </header>
     <div v-if="suiLoginRequired || suiSessionState === 'unavailable'" class="sui-session-banner">
       <p role="status">{{ suiSessionLabel }}</p>
@@ -1061,7 +1042,11 @@ onUnmounted(() => {
             <h2 id="config-title">配置</h2>
             <button type="button" class="close-action" aria-label="关闭配置" title="关闭" @click="settingsOpen = false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
           </div>
-          <div class="general-settings">
+          <nav class="config-tabs" aria-label="配置页面">
+            <button type="button" aria-controls="general-settings" :aria-pressed="settingsTab === 'general'" @click="settingsTab = 'general'">常规配置</button>
+            <button type="button" aria-controls="integration-settings" :aria-pressed="settingsTab === 'integrations'" @click="settingsTab = 'integrations'">接口接入</button>
+          </nav>
+          <div v-show="settingsTab === 'general'" id="general-settings" class="general-settings">
             <section class="config-group" aria-labelledby="ledger-settings-title">
               <h3 id="ledger-settings-title" class="config-group-title">随手记账号与账簿</h3>
               <div class="config-account-row">
@@ -1180,6 +1165,7 @@ onUnmounted(() => {
               <button type="button" :disabled="settingsBusy" @click="saveSettings">保存配置</button>
             </div>
           </div>
+          <IntegrationSettings v-show="settingsTab === 'integrations'" id="integration-settings" />
         </section>
       </div>
     </Teleport>
@@ -1251,7 +1237,7 @@ onUnmounted(() => {
         </Transition>
       </section>
     </div>
-    <section v-if="syncedMetadata" class="card metadata-card"><div class="section-title metadata-section-title"><div class="metadata-heading"><button type="button" class="metadata-disclosure" :aria-label="pageMetadataExpanded ? '收起账本资料' : '展开账本资料'" :aria-expanded="pageMetadataExpanded" @click="togglePageMetadataExpanded"><span class="toggle-chevron" :class="{ expanded: pageMetadataExpanded }" aria-hidden="true"></span></button><div><h2>账本资料</h2><div class="metadata-sync-info"><span class="field-hint">共 {{ books.length }} 个账本 · 账本资料同步于 <Transition name="time-fade" mode="out-in"><span :key="syncedMetadata.fetchedAt" class="synced-time">{{ formatBrowserDateTime(syncedMetadata.fetchedAt) }}</span></Transition></span><span class="field-hint">当前账簿：{{ syncedMetadata.currentBook.name }}<template v-if="booksUpdatedAt"> · 账本列表同步于 <Transition name="time-fade" mode="out-in"><span :key="booksUpdatedAt" class="synced-time">{{ formatBrowserDateTime(booksUpdatedAt) }}</span></Transition></template></span></div></div></div></div><template v-if="pageMetadataExpanded"><div class="category-columns"><div><h3>支出分类（{{ syncedMetadata.categories.expense.length }}）</h3><p class="field-hint">一级分类仅用于分组，记账必须选择二级分类。</p><div class="category-tree"><div v-for="group in expenseCategoryGroups" :key="`main-expense-group-${group.parent.id}`" class="category-group"><div class="category-parent" :class="{ 'category-leaf': isLeafCategory(group.parent) }"><span>{{ group.parent.name }}</span><small>{{ isLeafCategory(group.parent) ? '二级分类' : '一级分类（不可直接记账）' }}</small></div><ul v-if="group.children.length" class="category-children"><li v-for="item in group.children" :key="`main-expense-${item.id}`" class="category-child"><span>↳ {{ item.name }}</span><small>二级分类</small></li></ul></div></div></div><div><h3>收入分类（{{ syncedMetadata.categories.income.length }}）</h3><p class="field-hint">一级分类仅用于分组，记账必须选择二级分类。</p><div class="category-tree"><div v-for="group in incomeCategoryGroups" :key="`main-income-group-${group.parent.id}`" class="category-group"><div class="category-parent" :class="{ 'category-leaf': isLeafCategory(group.parent) }"><span>{{ group.parent.name }}</span><small>{{ isLeafCategory(group.parent) ? '二级分类' : '一级分类（不可直接记账）' }}</small></div><ul v-if="group.children.length" class="category-children"><li v-for="item in group.children" :key="`main-income-${item.id}`" class="category-child"><span>↳ {{ item.name }}</span><small>二级分类</small></li></ul></div></div></div></div><div class="metadata-extra-columns"><div><h4>商家（{{ syncedMetadata.stores.length }}）</h4><ul><li v-for="item in syncedMetadata.stores" :key="`main-store-${item.id}`">{{ item.name }}</li></ul></div><div><h4>账户（{{ syncedMetadata.accounts.length }}）</h4><ul><li v-for="item in syncedMetadata.accounts" :key="`main-account-${item.id}`">{{ item.name }}</li></ul></div><div><h4>项目（{{ syncedMetadata.projects.length }}）</h4><ul><li v-for="item in syncedMetadata.projects" :key="`main-project-${item.id}`">{{ item.name }}</li></ul></div><div><h4>成员（{{ syncedMetadata.members.length }}）</h4><ul><li v-for="item in syncedMetadata.members" :key="`main-member-${item.id}`">{{ item.name }}</li></ul></div></div><div class="metadata-actions"><button @click="settingsOpen = true">重新同步</button></div></template></section>
+    <section v-if="syncedMetadata" class="card metadata-card"><div class="section-title metadata-section-title"><div class="metadata-heading"><button type="button" class="metadata-disclosure" :aria-label="pageMetadataExpanded ? '收起账本资料' : '展开账本资料'" :aria-expanded="pageMetadataExpanded" @click="togglePageMetadataExpanded"><span class="toggle-chevron" :class="{ expanded: pageMetadataExpanded }" aria-hidden="true"></span></button><div><h2>账本资料</h2><div class="metadata-sync-info"><span class="field-hint">共 {{ books.length }} 个账本 · 账本资料同步于 <Transition name="time-fade" mode="out-in"><span :key="syncedMetadata.fetchedAt" class="synced-time">{{ formatBrowserDateTime(syncedMetadata.fetchedAt) }}</span></Transition></span><span class="field-hint">当前账簿：{{ syncedMetadata.currentBook.name }}<template v-if="booksUpdatedAt"> · 账本列表同步于 <Transition name="time-fade" mode="out-in"><span :key="booksUpdatedAt" class="synced-time">{{ formatBrowserDateTime(booksUpdatedAt) }}</span></Transition></template></span></div></div></div></div><template v-if="pageMetadataExpanded"><div class="category-columns"><div><h3>支出分类（{{ syncedMetadata.categories.expense.length }}）</h3><p class="field-hint">一级分类仅用于分组，记账必须选择二级分类。</p><div class="category-tree"><div v-for="group in expenseCategoryGroups" :key="`main-expense-group-${group.parent.id}`" class="category-group"><div class="category-parent" :class="{ 'category-leaf': isLeafCategory(group.parent) }"><span>{{ group.parent.name }}</span><small>{{ isLeafCategory(group.parent) ? '二级分类' : '一级分类（不可直接记账）' }}</small></div><ul v-if="group.children.length" class="category-children"><li v-for="item in group.children" :key="`main-expense-${item.id}`" class="category-child"><span>↳ {{ item.name }}</span><small>二级分类</small></li></ul></div></div></div><div><h3>收入分类（{{ syncedMetadata.categories.income.length }}）</h3><p class="field-hint">一级分类仅用于分组，记账必须选择二级分类。</p><div class="category-tree"><div v-for="group in incomeCategoryGroups" :key="`main-income-group-${group.parent.id}`" class="category-group"><div class="category-parent" :class="{ 'category-leaf': isLeafCategory(group.parent) }"><span>{{ group.parent.name }}</span><small>{{ isLeafCategory(group.parent) ? '二级分类' : '一级分类（不可直接记账）' }}</small></div><ul v-if="group.children.length" class="category-children"><li v-for="item in group.children" :key="`main-income-${item.id}`" class="category-child"><span>↳ {{ item.name }}</span><small>二级分类</small></li></ul></div></div></div></div><div class="metadata-extra-columns"><div><h4>商家（{{ syncedMetadata.stores.length }}）</h4><ul><li v-for="item in syncedMetadata.stores" :key="`main-store-${item.id}`">{{ item.name }}</li></ul></div><div><h4>账户（{{ syncedMetadata.accounts.length }}）</h4><ul><li v-for="item in syncedMetadata.accounts" :key="`main-account-${item.id}`">{{ item.name }}</li></ul></div><div><h4>项目（{{ syncedMetadata.projects.length }}）</h4><ul><li v-for="item in syncedMetadata.projects" :key="`main-project-${item.id}`">{{ item.name }}</li></ul></div><div><h4>成员（{{ syncedMetadata.members.length }}）</h4><ul><li v-for="item in syncedMetadata.members" :key="`main-member-${item.id}`">{{ item.name }}</li></ul></div></div><div class="metadata-actions"><button @click="openSettings">重新同步</button></div></template></section>
     <Teleport to="body">
       <button v-if="selected" type="button" class="mobile-detail-close" :disabled="busy" aria-label="关闭记录编辑器" @click="closeEntryDetail">关闭</button>
     </Teleport>
