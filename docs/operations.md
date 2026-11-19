@@ -88,7 +88,7 @@ sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
 - `GET /api/v1/entries`、`GET /api/v1/entries/{id}` 查询记录。
 - `PATCH /api/v1/entries/{id}` 按版本保存草稿。
 - `POST /api/v1/entries/{id}/reparse` 立即把记录放回 `queued` 待解析队列；后台使用当前账簿资料和解析补充提示重新生成草稿，字段明确时自动提交，字段不确定时进入待人工确认。`uncertain` 待核对记录不能重新解析：其随手记写入结果未知，可能已入账，重新解析会走自动提交而造成重复记账；请先核对流水或使用人工处理接口。
-- `POST /api/v1/entries/{id}/interrupt` 只允许处理 `processing` 记录：先将其标记为可重新解析的失败记录，再取消当前模型请求，不需要重启服务；错误代码为 `processing_cancelled`。
+- `POST /api/v1/entries/{id}/interrupt` 可以中断 `processing` 中的记录，错误代码为 `processing_cancelled`。文本记录可重新解析，结构化记录可在网页检查草稿后提交。
 - `POST /api/v1/entries/reconcile-uncertain` 批量核对不确定记录；页面“刷新并核对”会调用它，服务也会每 5 分钟自动调用一次。页面对待核对记录每 15 秒读取本地状态，并在后台核对完成后更新详情；轮询不会额外请求随手记。
 - `POST /api/v1/entries/{id}/confirm` 确认处理；`POST /api/v1/entries/{id}/resolve` 人工处理 `uncertain` 或 `rejected` 记录：核对随手记流水后指定 `result` 为 `committed`（确认已入账）或 `rejected`（确认未入账），可附 `note` 说明依据。`DELETE /api/v1/entries/{id}` 删除记录。
 - `POST /api/v1/processing/pause` 与 `POST /api/v1/processing/resume` 暂停和恢复后台解析队列。暂停只影响后台领取新任务：已在解析中的记录会照常完成，人工确认提交不受影响；队列里的待解析记录保留，恢复后按原顺序继续。
@@ -97,6 +97,59 @@ sudo ./sui-copilot-<os>-<arch> update --version v0.2.0
 - `POST /api/v1/sui/session` 接受同源 JSON 请求 `{"account":"…","password":"…"}`。成功后返回当前账簿、账簿列表以及现有分类快照是否仍可使用。登录响应不缓存。反向代理需保留浏览器使用的原始 `Host`。
 - `GET /api/v1/llm/models`（`/api/v1/models` 和旧的 `/api/v1/openrouter/models` 兼容别名）读取当前模型服务缓存的模型目录；`POST /api/v1/llm/models/sync` 同步当前服务商的 `/models` 列表。自定义端点不支持 `/models` 时仍可手填模型 ID。
 - `GET /api/v1/sui/books` 读取 SQLite 中缓存的随手记账簿列表；`POST /api/v1/sui/books/sync` 才访问随手记并更新缓存。选择目标账簿会同时保存到 SQLite，网页中点击“同步当前账簿分类”后才由 `POST /api/v1/sui/sync` 同步完整分类资料和更新时间。分类按一级/二级层级展示，记账分类只能选择二级分类。
+
+## 外部程序提交结构化账目
+
+已有账目字段的程序可以直接提交结构化账目。服务复用网页的后台队列、账簿校验和随手记写入流程，整个过程无需配置或调用模型服务。账目进入队列后，到达 `committed` 才表示已写入随手记。
+
+### HTTP API
+
+1. 用 `GET /api/v1/metadata` 取得已同步的当前账簿 `bookId`、二级分类和账户。请先在网页登录随手记、选择目标账簿并同步分类。
+2. 向 `POST /api/v1/entries` 发送 `Content-Type: application/json` 的请求。每笔账目使用唯一的 `clientRequestId`。下面是支出示例，`bookId`、分类和账户需取自你的账簿。
+
+   ```json
+   {
+     "clientRequestId": "3c8448bc-98d5-4a3d-a662-63bb7c4d5f3c",
+     "bookId": "123456",
+     "draft": {
+       "type": "expense",
+       "date": "2026-11-19 12:30",
+       "amount": "35.00",
+       "categoryName": "餐饮 / 午餐",
+       "accountName": "银行卡",
+       "memo": "午饭"
+     }
+   }
+   ```
+
+3. 首次接收返回 `202 Accepted`，例如 `{"entryId":42,"state":"queued","existing":false}`。使用 `GET /api/v1/entries/42` 查询 `entry.state`。
+
+`type` 支持 `expense`（支出）与 `income`（收入）。`date` 使用北京时间，格式为 `YYYY-MM-DD HH:mm`。`amount` 是正数金额字符串，最多两位小数。`categoryName` 使用对应收入或支出的二级分类路径，`accountName` 使用账簿中的账户名称。可选字段有 `memo`、`storeName`、`projectName`、`memberName` 和 `needsConfirmation`。填写商家、项目或成员时，请使用当前账簿的名称。
+
+网络超时后以**原请求 ID 和原参数**重试。记录仍在本地时，重试返回 `200 OK`、原 `entryId` 与 `existing: true`。同一个 ID 用于不同账簿或内容会返回 `409 idempotency_conflict`。已清理或手动删除的记录不再参与此检查。
+
+| 状态 | 含义 |
+| --- | --- |
+| `queued`、`processing`、`committing` | 已接收，等待校验或写入，可继续查询。 |
+| `committed` | 随手记已入账。 |
+| `needs_confirmation` | 字段未通过账簿校验，或提交时指定了 `needsConfirmation: true`。可在网页记录详情处理。 |
+| `rejected` | 写入失败，`errorCode` 和 `errorMessage` 给出原因。 |
+| `uncertain` | 写入结果未知，先核对随手记流水，避免重记。 |
+| `pending_submission` | 草稿已经校验，等待提交。Debug 模式使用网页预览。 |
+
+如果目标账簿已切换，需要切回记录所属账簿并同步后再提交。服务在校验阶段退出时，重启后记录会重新进入队列。已经进入写入阶段的记录会恢复为 `uncertain`。
+
+### MCP
+
+在支持 **Streamable HTTP** 的 MCP 客户端中添加服务器 `http://127.0.0.1:8080/mcp`，使用 sui-copilot 的实际地址和端口。
+
+| 工具 | 用法 |
+| --- | --- |
+| `get_book_metadata` | 读取当前账簿 ID、北京时间、分类路径、账户、商家、项目和成员名称。 |
+| `submit_entry` | 接收与 `POST /api/v1/entries` 相同的参数，返回记录 ID 和状态。 |
+| `get_entry_status` | 传入 `{"entryId":42}`，查询这条结构化记录的处理状态及错误原因。 |
+
+HTTP API 和 MCP 使用相同的请求 ID 去重规则。跨设备接入沿用[安全边界](#安全边界)中的 HTTPS 反向代理与认证。代理到回环地址时，`/mcp` 的上游 `Host` 使用回环地址（例如 `127.0.0.1:8080`），以通过 MCP 的主机名检查。网页和其他接口继续使用浏览器的原始 `Host`。
 
 ## 后台维护
 

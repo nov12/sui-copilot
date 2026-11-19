@@ -56,22 +56,15 @@ func (s *Server) runProcessingQueue() {
 			s.processingMu.Unlock()
 			return
 		}
-		job := s.processingQueue[0]
 		s.processingMu.Unlock()
 		if paused, err := s.processingPaused(); err != nil {
 			s.logger.Error("read processing pause state failed", "error", err)
 		} else if paused {
-			// The pause switch only gates taking new jobs; in-flight work and
-			// manual endpoints are unaffected. Requeue and recheck shortly.
-			s.processingMu.Lock()
-			s.processingQueue = append([]processingJob{job}, s.processingQueue...)
-			s.processingMu.Unlock()
-			if !sleepContext(context.Background(), processingPausePollInterval) {
-				return
-			}
+			time.Sleep(processingPausePollInterval)
 			continue
 		}
 		s.processingMu.Lock()
+		job := s.processingQueue[0]
 		s.processingQueue = s.processingQueue[1:]
 		ctx, cancel := context.WithTimeout(context.Background(), backgroundProcessingTimeout)
 		s.processingCancel[job.id] = cancel
@@ -97,20 +90,6 @@ func (s *Server) processingPaused() (bool, error) {
 	return value == "true", nil
 }
 
-// sleepContext pauses the worker for the given duration. It reports false
-// only when the process should stop; this server runs until exit, so it
-// always waits the full duration.
-func sleepContext(ctx context.Context, duration time.Duration) bool {
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}
-
 func (s *Server) cancelProcessing(id int64) {
 	s.processingMu.Lock()
 	cancel := s.processingCancel[id]
@@ -121,15 +100,13 @@ func (s *Server) cancelProcessing(id int64) {
 }
 
 func (s *Server) enqueueQueuedEntries() {
-	entries, err := s.db.List(context.Background(), accounting.StateQueued, 200)
+	ids, err := s.db.QueuedEntryIDs(context.Background())
 	if err != nil {
 		s.logger.Error("load queued entries failed", "error", err)
 		return
 	}
-	// List returns newest first for the web UI. Reverse the startup batch so
-	// recovery preserves the original submission order.
-	for i := len(entries) - 1; i >= 0; i-- {
-		s.enqueueProcessing(entries[i].ID)
+	for _, id := range ids {
+		s.enqueueProcessing(id)
 	}
 }
 
@@ -155,17 +132,30 @@ func (s *Server) processEntry(ctx context.Context, id int64) error {
 	if entry.State != accounting.StateQueued {
 		return nil
 	}
-	entry, err = s.db.SetState(ctx, id, accounting.StateQueued, accounting.StateProcessing, "parse_started", "后台解析中")
+	structured := entry.BookID != ""
+	code, message := "parse_started", "后台解析中"
+	if structured {
+		code, message = "validation_started", "校验结构化账目"
+	}
+	entry, err = s.db.SetState(ctx, id, accounting.StateQueued, accounting.StateProcessing, code, message)
 	if err != nil {
 		return err
 	}
 
-	draft, err := s.parseWithAI(ctx, entry.InputText)
-	// Parsing may return after cancellation. Local state transitions still
-	// need a short opportunity to finish, without extending upstream work.
+	var draft accounting.Draft
+	if structured {
+		draft, err = accounting.DecodeDraft(entry.DraftJSON)
+	} else {
+		draft, err = s.parseWithAI(ctx, entry.InputText)
+	}
+	// Persist local state even when background work uses its full time budget.
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statePersistenceTimeout)
 	defer cancel()
 	if err != nil {
+		if structured {
+			_, err = s.db.CompleteProcessing(saveCtx, id, entry.DraftJSON, accounting.StateRejected, "invalid_draft", "结构化草稿损坏")
+			return err
+		}
 		if ctx.Err() != nil {
 			// A manual interrupt changes the database state before cancelling the
 			// request. If the timeout itself fires, also avoid leaving the entry
@@ -197,9 +187,9 @@ func (s *Server) processEntry(ctx context.Context, id int64) error {
 	}
 
 	if missing := accounting.MissingConfirmation(draft); draft.NeedsConfirm || len(missing) > 0 {
-		message := "解析结果需要人工确认"
+		message := "账目需要人工确认"
 		if len(missing) > 0 {
-			message = "解析结果缺少必要字段，请人工补充后确认"
+			message = "草稿缺少必要字段，请人工补充后确认"
 		}
 		_, err = s.db.CompleteProcessing(saveCtx, id, raw, accounting.StateNeedsConfirmation, "needs_confirmation", message)
 		return err
@@ -208,18 +198,13 @@ func (s *Server) processEntry(ctx context.Context, id int64) error {
 		_, completeErr := s.db.CompleteProcessing(saveCtx, id, raw, accounting.StateNeedsConfirmation, "invalid_draft", err.Error())
 		return completeErr
 	}
-	if err := s.validateDraftCategory(saveCtx, draft); err != nil {
-		_, code, message := submitErrorDetails(err)
-		_, completeErr := s.db.CompleteProcessing(saveCtx, id, raw, accounting.StateNeedsConfirmation, code, message)
-		return completeErr
-	}
-	input, err := s.resolveWriteInput(saveCtx, draft)
+	input, err := s.resolveWriteInput(saveCtx, entry, draft)
 	if err != nil {
 		_, code, message := submitErrorDetails(err)
 		_, completeErr := s.db.CompleteProcessing(saveCtx, id, raw, accounting.StateNeedsConfirmation, code, message)
 		return completeErr
 	}
-	entry, err = s.db.CompleteProcessing(saveCtx, id, raw, accounting.StatePendingSubmission, "", "解析完成，准备自动提交")
+	entry, err = s.db.CompleteProcessing(saveCtx, id, raw, accounting.StatePendingSubmission, "", "草稿已就绪")
 	if err != nil {
 		return err
 	}

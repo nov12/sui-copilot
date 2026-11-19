@@ -46,7 +46,7 @@ func (s *Server) checkUncertainEntry(ctx context.Context, id int64) (reconcileOu
 	}
 	s.suiMu.Lock()
 	defer s.suiMu.Unlock()
-	input, err := s.resolveWriteInput(ctx, draft)
+	input, err := s.resolveWriteInput(ctx, entry, draft)
 	if err != nil {
 		return reconcileOutcome{Entry: entry}, err
 	}

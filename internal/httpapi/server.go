@@ -121,6 +121,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/updates/status", s.getUpdateStatus)
 	s.mux.HandleFunc("POST /api/v1/updates", s.installUpdate)
 	s.mux.HandleFunc("GET /api/v1/entries", s.listEntries)
+	s.mux.HandleFunc("POST /api/v1/entries", s.createStructuredEntry)
 	s.mux.HandleFunc("POST /api/v1/ingest", s.ingest)
 	s.mux.HandleFunc("GET /api/v1/entries/{id}", s.getEntry)
 	s.mux.HandleFunc("PATCH /api/v1/entries/{id}", s.updateEntry)
@@ -155,10 +156,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/sui/books", s.suiBooks)
 	s.mux.HandleFunc("POST /api/v1/sui/books/sync", s.syncSuiBooks)
 	s.mux.HandleFunc("POST /api/v1/sui/sync", s.syncSuiBook)
+	s.mux.Handle("/mcp", s.mcpHandler())
 	if assets, err := fs.Sub(staticFS, "static/dist/assets"); err == nil {
 		s.mux.Handle("GET /assets/", staticAssetHandler(assets))
 	}
-	s.mux.HandleFunc("GET /", s.index)
+	s.mux.HandleFunc("GET /{$}", s.index)
 }
 
 func staticAssetHandler(assets fs.FS) http.Handler {
@@ -201,10 +203,6 @@ func (s *Server) logging(next http.Handler) http.Handler {
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
 	path := "static/index.html"
 	if _, err := fs.Stat(staticFS, "static/dist/index.html"); err == nil {
 		path = "static/dist/index.html"
@@ -258,7 +256,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	if req.ClientRequestID != "" {
 		existing, err := s.db.GetByIdempotency(r.Context(), req.Source, req.ClientRequestID)
 		if err == nil {
-			if existing.InputType != req.InputType || existing.InputText != inputText {
+			if existing.BookID != "" || existing.InputType != req.InputType || existing.InputText != inputText {
 				writeError(w, http.StatusConflict, "idempotency_conflict", "clientRequestId 已用于其他内容")
 				return
 			}
@@ -508,20 +506,9 @@ func parseErrorDetails(err error, action string) (int, string, string) {
 }
 
 func (s *Server) parseContext(ctx context.Context, now time.Time) (llm.ParseContext, sui.Metadata, error) {
-	snapshot, err := s.db.LatestMetadata(ctx)
-	if errors.Is(err, store.ErrNotFound) {
-		return llm.ParseContext{}, sui.Metadata{}, errCategoryMetadataNotSynced
-	}
+	metadata, err := s.bookMetadata(ctx)
 	if err != nil {
 		return llm.ParseContext{}, sui.Metadata{}, err
-	}
-	var metadata sui.Metadata
-	if err := json.Unmarshal([]byte(snapshot.Payload), &metadata); err != nil {
-		return llm.ParseContext{}, sui.Metadata{}, errCategoryMetadataNotSynced
-	}
-	configuredBook := strings.TrimSpace(s.runtimeConfig().Sui.BookName)
-	if configuredBook == "" || strings.TrimSpace(metadata.CurrentBook.Name) != configuredBook {
-		return llm.ParseContext{}, sui.Metadata{}, errCategoryMetadataBookMismatch
 	}
 	defaultAccount := ""
 	if len(metadata.Accounts) > 0 {
@@ -596,6 +583,7 @@ func (s *Server) listEntries(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getEntry(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, ok := pathID(r)
 	if !ok {
 		writeError(w, 400, "invalid_id", "记录 ID 不正确")
@@ -652,6 +640,10 @@ func (s *Server) reparseEntry(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "invalid_state", "当前状态不能重新解析")
 		return
 	}
+	if e.BookID != "" {
+		writeError(w, http.StatusConflict, "structured_entry", "请在记录详情中直接编辑结构化草稿")
+		return
+	}
 	var request struct {
 		Text string `json:"text"`
 	}
@@ -702,16 +694,20 @@ func (s *Server) interruptEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e.State != accounting.StateProcessing {
-		writeError(w, http.StatusConflict, "invalid_state", "只有解析中的记录可以中断")
+		writeError(w, http.StatusConflict, "invalid_state", "只有后台处理中的记录可以中断")
 		return
 	}
-	updated, err := s.db.SetState(r.Context(), id, accounting.StateProcessing, accounting.StateRejected, "processing_cancelled", "已手动中断解析，请重新解析")
+	message := "已手动中断解析，请重新解析"
+	if e.BookID != "" {
+		message = "已手动中断校验，请检查草稿后提交"
+	}
+	updated, err := s.db.SetState(r.Context(), id, accounting.StateProcessing, accounting.StateRejected, "processing_cancelled", message)
 	if errors.Is(err, store.ErrConflict) {
-		writeError(w, http.StatusConflict, "invalid_state", "记录已完成解析或被其他请求更新")
+		writeError(w, http.StatusConflict, "invalid_state", "记录已完成处理或被其他请求更新")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "store_error", "中断解析失败")
+		writeError(w, http.StatusInternalServerError, "store_error", "中断处理失败")
 		return
 	}
 	s.cancelProcessing(id)
@@ -757,7 +753,7 @@ func (s *Server) submitPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "invalid_draft", "草稿损坏")
 		return
 	}
-	draft, err = s.applyDefaultAccount(r.Context(), draft)
+	draft, err = s.applyDefaultAccount(r.Context(), e, draft)
 	if err != nil {
 		s.writeSubmitError(w, err)
 		return
@@ -772,7 +768,7 @@ func (s *Server) submitPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	s.suiMu.Lock()
 	defer s.suiMu.Unlock()
-	input, err := s.resolveWriteInput(r.Context(), draft)
+	input, err := s.resolveWriteInput(r.Context(), e, draft)
 	if err != nil {
 		s.writeSubmitError(w, err)
 		return
@@ -841,7 +837,8 @@ func (s *Server) executeSubmitPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, code, message)
 		return
 	}
-	if preview.ContextID != s.previewContextID(books.CurrentBook.ID) || sui.ValidateBook(books, client.BookName) != nil {
+	if preview.ContextID != s.previewContextID(books.CurrentBook.ID) || sui.ValidateBook(books, client.BookName) != nil ||
+		(e.BookID != "" && e.BookID != books.CurrentBook.ID) {
 		writeError(w, http.StatusConflict, "stale_preview", "会话或目标账簿已变化，请确认当前账簿并重新生成提交预览")
 		return
 	}
@@ -908,6 +905,10 @@ func submitErrorDetails(err error) (int, string, string) {
 		return http.StatusUnprocessableEntity, "category_metadata_not_synced", "请先同步当前账簿分类"
 	case errors.Is(err, errCategoryMetadataBookMismatch):
 		return http.StatusUnprocessableEntity, "category_metadata_book_mismatch", "分类资料不属于当前目标账簿，请重新同步分类"
+	case errors.Is(err, errEntryBookMismatch):
+		return http.StatusUnprocessableEntity, "entry_book_mismatch", "请切回这条记录所属的账簿并同步分类后提交"
+	case errors.Is(err, errInvalidBookField):
+		return http.StatusUnprocessableEntity, "invalid_book_field", err.Error()
 	case errors.Is(err, sui.ErrCategoryNotFound):
 		return http.StatusUnprocessableEntity, "category_not_found", "分类不是当前账簿中已同步的二级分类"
 	case errors.Is(err, sui.ErrCategoryNotLeaf):
@@ -993,7 +994,7 @@ func (s *Server) confirmEntry(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "invalid_draft", "草稿损坏")
 		return
 	}
-	draft, err = s.applyDefaultAccount(r.Context(), draft)
+	draft, err = s.applyDefaultAccount(r.Context(), e, draft)
 	if err != nil {
 		s.writeSubmitError(w, err)
 		return
@@ -1006,24 +1007,7 @@ func (s *Server) confirmEntry(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 422, "invalid_draft", err.Error())
 		return
 	}
-	if err := s.validateDraftCategory(r.Context(), draft); err != nil {
-		switch {
-		case errors.Is(err, errCategoryMetadataNotSynced):
-			writeError(w, http.StatusUnprocessableEntity, "category_metadata_not_synced", "请先同步当前账簿分类")
-		case errors.Is(err, errCategoryMetadataBookMismatch):
-			writeError(w, http.StatusUnprocessableEntity, "category_metadata_book_mismatch", "分类资料不属于当前目标账簿，请重新同步分类")
-		case errors.Is(err, sui.ErrCategoryNotFound):
-			writeError(w, http.StatusUnprocessableEntity, "category_not_found", "分类不是当前账簿中已同步的二级分类")
-		case errors.Is(err, sui.ErrCategoryNotLeaf):
-			writeError(w, http.StatusUnprocessableEntity, "category_not_leaf", "记账必须选择二级分类，不能使用一级分类")
-		case errors.Is(err, sui.ErrCategoryNameAmbiguous):
-			writeError(w, http.StatusUnprocessableEntity, "category_name_ambiguous", "分类名称对应多个二级分类，请使用唯一的二级分类")
-		default:
-			writeError(w, http.StatusInternalServerError, "metadata_error", "读取分类资料失败")
-		}
-		return
-	}
-	input, err := s.resolveWriteInput(r.Context(), draft)
+	input, err := s.resolveWriteInput(r.Context(), e, draft)
 	if err != nil {
 		s.writeSubmitError(w, err)
 		return
@@ -1048,7 +1032,7 @@ func (s *Server) submitResolvedEntry(ctx context.Context, entry store.Entry, inp
 	s.suiMu.Lock()
 	defer s.suiMu.Unlock()
 
-	committing, err := s.db.SetState(ctx, entry.ID, entry.State, accounting.StateCommitting, "sui_commit_started", "正在提交到随手记")
+	committing, err := s.db.SetStateAtVersion(ctx, entry, accounting.StateCommitting, "sui_commit_started", "正在提交到随手记")
 	if err != nil {
 		return store.Entry{}, sui.WriteResult{}, err
 	}

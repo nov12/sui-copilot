@@ -20,6 +20,7 @@ export interface Entry {
   clientRequestId: string
   inputType: string
   inputText: string
+  bookId?: string
   state: EntryState
   version: number
   reconcileMisses?: number
